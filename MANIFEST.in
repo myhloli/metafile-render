@@ -2,3 +2,4 @@ include tests/*.py
 
 recursive-include tests/fixtures *.emf *.png *.md
 include tools/generate_emfplus_fixtures.ps1
+include tools/*.py

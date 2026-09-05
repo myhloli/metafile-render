@@ -3,6 +3,7 @@
 import shutil
 import subprocess
 import sys
+from importlib.metadata import version
 from pathlib import Path
 from typing import Sequence
 
@@ -97,7 +98,7 @@ def test_cli_reports_partial_results(tmp_path: Path) -> None:
     """部分渲染保留输出，并在 stderr 显示可定位诊断。"""
     source, target = tmp_path / "partial.emf", tmp_path / "out.png"
     source.write_bytes(build_emf([emf_record(118, b"\x00" * 16), emf_rectangle(5, 5, 95, 95)]))
-    result = _run([str(source), "-o", str(target)])
+    result = _run([str(source), "-o", str(target), "--backend", "replay"])
     assert result.returncode == 0
     assert "partial rendering" in result.stderr
     assert "unsupported_emf_record" in result.stderr
@@ -130,7 +131,7 @@ def test_installed_console_script_and_module_version() -> None:
     script = subprocess.run([executable, "--version"], capture_output=True, text=True, check=False)
     module = _run(["--version"])
     assert script.returncode == module.returncode == 0
-    assert script.stdout == module.stdout == "metafile-render 0.2.0\n"
+    assert script.stdout == module.stdout == f"metafile-render {version('metafile-render')}\n"
 
 
 def test_cli_emfplus_only_partial_and_error(tmp_path: Path) -> None:
@@ -146,3 +147,21 @@ def test_cli_emfplus_only_partial_and_error(tmp_path: Path) -> None:
     target.unlink()
     result = _run([str(source), "-o", str(target)])
     assert result.returncode == 1 and not target.exists()
+
+
+def test_cli_default_resolution_and_replay_option(tmp_path: Path) -> None:
+    """命令行省略 DPI 时使用 200，并允许显式选择解析回放。"""
+    from io import BytesIO
+
+    from PIL import Image
+
+    source = tmp_path / "input.wmf"
+    output = tmp_path / "output.png"
+    source.write_bytes(basic_wmf())
+    result = _run([str(source), "-o", str(output), "--backend", "replay"])
+    assert result.returncode == 0
+    with Image.open(BytesIO(output.read_bytes())) as image:
+        assert image.size == (200, 200)
+        assert image.info["dpi"] == pytest.approx((200, 200), abs=0.02)
+    invalid = _run([str(source), "-o", str(tmp_path / "missing.png"), "--backend", "native"])
+    assert invalid.returncode == 2 and not (tmp_path / "missing.png").exists()

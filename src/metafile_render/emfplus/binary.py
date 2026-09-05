@@ -10,7 +10,8 @@ from typing import Iterator
 
 from ..binary import BoundedReader
 from ..limits import MAX_POINTS_PER_RECORD
-from ..models import Color, Matrix, MetafileMalformedError, MetafileResourceLimitError, Point, Rect
+from ..models import MetafileMalformedError, MetafileResourceLimitError
+from ..primitives import Color, Matrix, Point, Rect
 
 
 def finite(value: float) -> float:

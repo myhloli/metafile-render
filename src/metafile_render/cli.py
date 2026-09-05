@@ -65,15 +65,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="metafile-render", description="Render WMF/EMF to SVG, PNG, JPEG or WebP.")
     parser.add_argument("input", type=Path, help="input WMF or EMF file")
     parser.add_argument("-o", "--output", type=Path, required=True, help="output .svg, .png, .jpg, .jpeg or .webp file")
-    parser.add_argument("--dpi", type=_positive_integer, default=144, help="render DPI, 1–1200 (default: 144)")
+    parser.add_argument("--dpi", type=_positive_integer, default=None, help="render DPI, 1–1200 (default: 200)")
     parser.add_argument("--size", type=_positive_integer, nargs=2, metavar=("WIDTH", "HEIGHT"), help="pixel size hint")
+    parser.add_argument("--backend", choices=("auto", "replay"), default="auto", help="rendering backend (default: auto)")
     parser.add_argument("--force", action="store_true", help="replace an existing output file")
     parser.add_argument("--version", action="version", version=f"%(prog)s {version('metafile-render')}")
     arguments = parser.parse_args(argv)
     output_format = _OUTPUT_FORMATS.get(arguments.output.suffix.lower())
     if output_format is None:
         parser.error("output extension must be .svg, .png, .jpg, .jpeg or .webp")
-    if arguments.dpi > 1200:
+    if arguments.dpi is not None and arguments.dpi > 1200:
         parser.error("--dpi must be between 1 and 1200")
     try:
         source, destination = arguments.input, arguments.output
@@ -82,7 +83,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         if (destination.exists() or destination.is_symlink()) and not arguments.force:
             raise FileExistsError(f"output already exists: {destination}; use --force to replace it")
         size_hint = (arguments.size[0], arguments.size[1]) if arguments.size else None
-        result = render_metafile(_read_input(source), output_format=output_format, dpi=arguments.dpi, size_hint=size_hint)
+        result = render_metafile(
+            _read_input(source), output_format=output_format, dpi=arguments.dpi, size_hint=size_hint, backend=arguments.backend
+        )
         _write_output(destination, result.data, overwrite=arguments.force)
     except (MetafileError, OSError) as exc:
         print(f"metafile-render: {exc}", file=sys.stderr)

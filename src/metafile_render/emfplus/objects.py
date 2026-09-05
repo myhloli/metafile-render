@@ -6,14 +6,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from io import BytesIO
-from typing import Callable, TypeAlias
+from typing import Callable, Literal, TypeAlias
 
 from PIL import Image, UnidentifiedImageError
 
 from ..binary import BoundedReader
 from ..geometry import PathBuilder
 from ..limits import MAX_CANVAS_DIMENSION, MAX_CANVAS_PIXELS, MAX_EMBEDDED_BITMAP_BYTES
-from ..models import Color, Font, GraphicsPath, MetafileMalformedError, MetafileResourceLimitError, Pen
+from ..models import MetafileMalformedError, MetafileResourceLimitError
+from ..primitives import Color, Font, GraphicsPath, Pen
 from .binary import Cursor, argb
 
 Warn: TypeAlias = Callable[[str, str], None]
@@ -195,14 +196,16 @@ def pen(cursor: Cursor, warn: Warn) -> PlusPen:
         dashes = patterns.get(style, ())
         if style not in patterns:
             warn("emfplus_pen_approximation", "unknown dash style uses a solid stroke")
+    caps: dict[int, Literal["flat", "square", "round"]] = {0: "flat", 1: "square", 2: "round"}
+    joins: dict[int, Literal["miter", "bevel", "round"]] = {0: "miter", 1: "bevel", 2: "round"}
     return PlusPen(
         Pen(
             color=fill.color or Color(0, 0, 0, 0),
             width=width,
             cosmetic=False,
             null=fill.color is None,
-            cap={0: "flat", 1: "square", 2: "round"}.get(start, "flat"),
-            join={0: "miter", 1: "bevel", 2: "round"}.get(join, "miter"),
+            cap=caps.get(start, "flat"),
+            join=joins.get(join, "miter"),
             dashes=dashes,
         ),
         unit,

@@ -9,7 +9,8 @@ from math import atan2, ceil, cos, hypot, pi, sin
 from typing import Iterable
 
 from .limits import MAX_FLATTENED_POINTS
-from .models import GraphicsPath, Matrix, MetafileResourceLimitError, PathSegment, Point, Rect
+from .models import MetafileResourceLimitError
+from .primitives import GraphicsPath, Matrix, PathSegment, Point, Rect
 
 _ELLIPSE_KAPPA = 0.5522847498307936
 _DEFAULT_FLATNESS = 0.25
@@ -291,7 +292,7 @@ def _split_cubic(
     control1: Point,
     control2: Point,
     endpoint: Point,
-) -> tuple[tuple[Point, ...], tuple[Point, ...]]:
+) -> tuple[tuple[Point, Point, Point, Point], tuple[Point, Point, Point, Point]]:
     """按 de Casteljau 中点算法把三次贝塞尔曲线二分。"""
     first = ((start[0] + control1[0]) / 2.0, (start[1] + control1[1]) / 2.0)
     second = ((control1[0] + control2[0]) / 2.0, (control1[1] + control2[1]) / 2.0)
