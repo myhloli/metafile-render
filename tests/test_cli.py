@@ -98,7 +98,7 @@ def test_cli_reports_partial_results(tmp_path: Path) -> None:
     """部分渲染保留输出，并在 stderr 显示可定位诊断。"""
     source, target = tmp_path / "partial.emf", tmp_path / "out.png"
     source.write_bytes(build_emf([emf_record(118, b"\x00" * 16), emf_rectangle(5, 5, 95, 95)]))
-    result = _run([str(source), "-o", str(target)])
+    result = _run([str(source), "-o", str(target), "--backend", "replay"])
     assert result.returncode == 0
     assert "partial rendering" in result.stderr
     assert "unsupported_emf_record" in result.stderr

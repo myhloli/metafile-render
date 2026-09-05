@@ -26,6 +26,14 @@ jobs:
       - run: python -m pip install ".[test]"
       - run: python -m pytest -q
       - run: python -m pip check
+      - name: Render cross-platform review samples
+        if: matrix.python == '3.13'
+        run: python tools/render_review.py review-artifacts
+      - uses: actions/upload-artifact@v4
+        if: matrix.python == '3.13'
+        with:
+          name: review-${{ matrix.os }}
+          path: review-artifacts/
 
   minimum:
     name: Minimum dependencies / Python ${{ matrix.python }} / ${{ matrix.os }}

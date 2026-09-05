@@ -139,7 +139,12 @@ class _Playback:
 
     def logical_matrix(self) -> Matrix:
         """返回 world-to-page 与 page-to-device 的组合变换。"""
-        return self.state.world_transform.then(self._mapping_matrix())
+        matrix = self.state.world_transform.then(self._mapping_matrix())
+        if not all(
+            isfinite(value) and abs(value) <= 1e12 for value in (matrix.a, matrix.b, matrix.c, matrix.d, matrix.e, matrix.f)
+        ):
+            raise MetafileResourceLimitError("metafile cumulative transform exceeds coordinate budget")
+        return matrix
 
     def map_point(self, point: Point) -> Point:
         """把 GDI 逻辑点转换为统一 device 坐标。"""

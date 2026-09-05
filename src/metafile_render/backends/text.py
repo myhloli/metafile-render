@@ -11,6 +11,7 @@ from PIL import Image, ImageDraw, ImageFont
 from ..commands import DrawTextCommand, TextAlignment
 from ..geometry import FlattenBudget
 from ..primitives import Matrix, Point
+from ..sizing import check_render_size
 from .mapping import _mapped_rect
 from .paths import _apply_clip
 from .session import RenderSession
@@ -76,6 +77,7 @@ def _draw_rotated_text(
     padding = max(4, ceil(max(width, height) * 0.1))
     bottom = bbox[3] + line_width * 2 if underline else bbox[3]
     radius = ceil(max(hypot(x, y) for x in (bbox[0], bbox[2]) for y in (bbox[1], bottom))) + padding
+    check_render_size(radius * 2 + 1, radius * 2 + 1)
     patch = Image.new("RGBA", (radius * 2 + 1, radius * 2 + 1), (0, 0, 0, 0))
     patch_draw = ImageDraw.Draw(patch)
     reference = float(radius), float(radius)

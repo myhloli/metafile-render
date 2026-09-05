@@ -289,6 +289,8 @@ def _handle_emf_drawing_record(record_type: int, record: BoundedReader, playback
         radius = abs(float(record.u32(16)))
         start_angle = record.f32(20)
         sweep_angle = record.f32(24)
+        if not isfinite(start_angle) or not isfinite(sweep_angle):
+            raise MetafileMalformedError("EMF AngleArc contains non-finite angles")
         from math import cos, radians, sin
 
         start = (

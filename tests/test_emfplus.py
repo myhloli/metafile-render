@@ -401,3 +401,42 @@ def test_rendering_origin_consumes_both_coordinates() -> None:
     """非零首坐标不得通过短路漏读第二个坐标。"""
     result = render_metafile(plus_file([plus_record(0x401D, struct.pack("<ii", 5, 6)), fill_rect()]), dpi=144, backend="replay")
     assert result.partial
+
+
+@pytest.mark.parametrize(
+    ("scene", "checks"),
+    [
+        ("geometry", [((140, 35), (255, 0, 0)), ((30, 110), (0, 128, 0)), ((65, 190), (128, 0, 128))]),
+        ("state", [((70, 65), (255, 105, 105)), ((195, 40), (0, 0, 255)), ((145, 150), (0, 128, 0))]),
+        ("images", [((40, 40), (255, 0, 0)), ((40, 100), (255, 255, 255)), ((100, 80), (127, 217, 127))]),
+        (
+            "fallback",
+            [((60, 55), (255, 0, 0)), ((175, 55), (0, 128, 0)), ((60, 155), (128, 0, 128)), ((170, 150), (255, 255, 255))],
+        ),
+        ("mixed", [((40, 40), (255, 0, 0)), ((200, 40), (0, 0, 255))]),
+    ],
+)
+def test_native_fixture_semantic_color_regions(scene: str, checks: list[tuple[tuple[int, int], tuple[int, int, int]]]) -> None:
+    """在图形内部验证实际 GDI+ 样本的几何、透明混合、恢复顺序和固定降级。"""
+    data = (Path(__file__).parent / "fixtures/gdiplus" / f"{scene}-only.emf").read_bytes()
+    image = rgba(render_metafile(data, size_hint=(256, 256), backend="replay").data)
+    for point, expected in checks:
+        actual = image.getpixel(point)
+        assert actual[3] == 255
+        assert all(abs(actual[index] - value) <= 2 for index, value in enumerate(expected)), (scene, point, actual)
+
+
+def test_native_text_fixture_keeps_two_lines_and_centered_run() -> None:
+    """文字样本保留两行正文与居中蓝色文字，不要求跨字体逐像素一致。"""
+    data = (Path(__file__).parent / "fixtures/gdiplus/text-only.emf").read_bytes()
+    image = rgba(render_metafile(data, size_hint=(256, 256), backend="replay").data)
+    for box in [(10, 10, 230, 35), (10, 35, 230, 65), (20, 125, 220, 170)]:
+        histogram = image.crop(box).convert("L").histogram()
+        assert sum(histogram[:240]) > 30
+    blue = [
+        (x, y)
+        for y in range(125, 170)
+        for x in range(20, 220)
+        if image.getpixel((x, y))[0] < 100 and image.getpixel((x, y))[2] > 150
+    ]
+    assert blue and 100 <= (min(x for x, y in blue) + max(x for x, y in blue)) / 2 <= 140

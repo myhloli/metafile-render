@@ -211,3 +211,9 @@ returns independent copies before mutations, and releases cached images at the
 end of conversion. Input budgets and conservative render-work checks apply even
 on cache hits. Fill and stroke share flattened paths. Raster supersampling and
 SVG fallback selection use the same clip-aware work estimator.
+
+For timing and memory measurements, run `python tools/benchmark_rendering.py --replay`.
+The same script without `--replay` can benchmark pre-0.3 releases on non-Windows
+with identical inputs, explicit 144 DPI and fixed target dimensions. It reports
+median conversion time, Python allocation peak, and process RSS high-water mark
+where available. CI also uploads Only/Dual review outputs from each platform.

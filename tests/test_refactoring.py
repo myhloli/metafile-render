@@ -139,3 +139,44 @@ def test_context_input_budget_is_independent_of_render_cache(monkeypatch: pytest
     context.append_command(command)
     with pytest.raises(MetafileResourceLimitError):
         context.append_command(command)
+
+
+def test_composed_transform_budget_precedes_native(monkeypatch: pytest.MonkeyPatch) -> None:
+    """连续合法矩阵组合成极端坐标时，两种后端均在绘制前拒绝。"""
+    import struct
+
+    from _metafile_test_utils import emf_record, emf_rectangle, emf_set_world_transform
+
+    from metafile_render.backends import windows
+
+    matrix = (1e10, 0.0, 0.0, 1e10, 0.0, 0.0)
+    data = build_emf(
+        [emf_set_world_transform(matrix), emf_record(36, struct.pack("<6fI", *matrix, 2)), emf_rectangle(0, 0, 10, 10)]
+    )
+    native = Mock(side_effect=AssertionError("must check composed coordinates first"))
+    monkeypatch.setattr(windows, "is_windows", lambda: True)
+    monkeypatch.setattr(windows, "render_native", native)
+    for backend in ("auto", "replay"):
+        with pytest.raises(MetafileResourceLimitError, match="transform"):
+            render_metafile(data, backend=backend)
+    native.assert_not_called()
+
+
+def test_rotated_text_patch_has_pixel_budget(monkeypatch: pytest.MonkeyPatch) -> None:
+    """局部文字旋转画布也必须在分配前检查固定像素预算。"""
+    from metafile_render import limits
+    from metafile_render.backends.text import _draw_rotated_text
+
+    monkeypatch.setattr(limits, "MAX_CANVAS_PIXELS", 1)
+    with pytest.raises(MetafileResourceLimitError):
+        _draw_rotated_text(
+            Image.new("RGBA", (20, 20)),
+            (10, 10),
+            "bounded text",
+            font=ImageFont.load_default(size=20),
+            fill=(0, 0, 0, 255),
+            anchor="ls",
+            rotation=45,
+            underline=False,
+            strikeout=False,
+        )
