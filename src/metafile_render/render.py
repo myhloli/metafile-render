@@ -17,6 +17,7 @@ from .geometry import FlattenBudget, flatten_path, transform_path
 from .limits import MAX_CANVAS_PIXELS, MAX_EMBEDDED_BITMAP_BYTES, MAX_GENERATED_SVG_BYTES, MAX_RENDER_WORK_PIXELS
 from .models import (
     Brush,
+    ClearCommand,
     ClipOperation,
     ClipStack,
     Color,
@@ -140,6 +141,17 @@ def _validate_dib_dimensions(header: bytes) -> None:
 
 def _decode_dib(command: DrawImageCommand) -> Image.Image:
     """严格解码 DIB，并在需要时恢复源 alpha。"""
+    if command.encoded_png is not None:
+        if len(command.encoded_png) > MAX_EMBEDDED_BITMAP_BYTES:
+            raise MetafileResourceLimitError("normalized image exceeds byte budget")
+        try:
+            with Image.open(BytesIO(command.encoded_png)) as image:
+                if image.format != "PNG" or image.width * image.height > MAX_CANVAS_PIXELS:
+                    raise MetafileMalformedError("invalid normalized EMF+ bitmap")
+                image.load()
+                return image.convert("RGBA")
+        except (OSError, ValueError) as exc:
+            raise MetafileMalformedError("normalized EMF+ bitmap cannot be decoded") from exc
     _validate_dib_dimensions(command.dib_header)
     if command.use_source_alpha:
         raw_alpha = _decode_raw_alpha_dib(command)
@@ -825,7 +837,10 @@ def _render_pillow_once(document: MetafileDocument, raster_scale: int) -> Image.
     canvas = Image.new("RGBA", size, (255, 255, 255, 0))
     budget = FlattenBudget()
     for command in document.commands:
-        if isinstance(command, DrawPathCommand):
+        if isinstance(command, ClearCommand):
+            mask = _clip_mask(command.clip, matrix, size, budget) if command.clip else None
+            canvas.paste(command.color.rgba(), (0, 0, width, height), mask)
+        elif isinstance(command, DrawPathCommand):
             _composite_path(canvas, _render_path_command(command, matrix, size, raster_scale, budget), command.rop2)
         elif isinstance(command, DrawTextCommand):
             canvas.alpha_composite(_render_text_command(command, matrix, size, budget))
@@ -1024,7 +1039,9 @@ def _svg_image_element(command: DrawImageCommand, matrix: Matrix) -> str:
 
 def _svg_requires_raster(document: MetafileDocument) -> bool:
     """判断 SVG 是否需要用整图 PNG 包装保留复杂合成语义。"""
-    for command in document.commands:
+    for index, command in enumerate(document.commands):
+        if isinstance(command, ClearCommand) and (index > 0 or command.clip):
+            return True
         if any(operation.mode not in {"copy", "and"} for operation in command.clip):
             return True
         if isinstance(command, DrawPathCommand) and command.rop2 != 13:
@@ -1106,7 +1123,12 @@ def render_svg(document: MetafileDocument) -> bytes:
     _check_svg_size_budget(estimated_bytes)
     elements: list[str] = []
     for command in document.commands:
-        if isinstance(command, DrawPathCommand):
+        if isinstance(command, ClearCommand):
+            element = (
+                f'<rect x="0" y="0" width="{document.width}" height="{document.height}" '
+                f'fill="{command.color.svg()}"{_svg_opacity(command.color)}/>'
+            )
+        elif isinstance(command, DrawPathCommand):
             stroke = _svg_pen_attributes(command.pen, matrix, command.miter_limit) if command.stroke else 'stroke="none"'
             fill = _svg_brush_attributes(command.brush) if command.fill else 'fill="none"'
             element = f'<path d="{_svg_path_data(command.path, matrix)}" {stroke} {fill} fill-rule="{command.fill_rule}"/>'

@@ -249,9 +249,19 @@ class DrawImageCommand:
     constant_alpha: int = 255
     use_source_alpha: bool = False
     clip: ClipStack = ()
+    encoded_png: bytes | None = None
 
 
-DrawCommand: TypeAlias = DrawPathCommand | DrawTextCommand | DrawImageCommand
+@dataclass(frozen=True, slots=True)
+class ClearCommand:
+    """保存设备画布清屏操作，允许清除已有透明度。"""
+
+    color: Color
+    bounds: Rect
+    clip: ClipStack = ()
+
+
+DrawCommand: TypeAlias = DrawPathCommand | DrawTextCommand | DrawImageCommand | ClearCommand
 
 
 @dataclass(frozen=True, slots=True)
@@ -315,6 +325,7 @@ __all__ = [
     "BLACK",
     "WHITE",
     "Brush",
+    "ClearCommand",
     "ClipOperation",
     "Color",
     "DrawCommand",

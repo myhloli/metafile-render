@@ -253,7 +253,9 @@ def emf_stretch_dib() -> bytes:
 
 def emfplus_comment(*, dual: bool) -> bytes:
     """构造只含 EMF+ Header 的 EMR_COMMENT。"""
-    plus = struct.pack("<IHHII", 0x2B464D45, 0x4001, 1 if dual else 0, 12, 0)
+    plus = struct.pack("<IHHIIIIII", 0x2B464D45, 0x4001, 1 if dual else 0, 28, 16, 0xDBC01002, 1, 100, 100) + struct.pack(
+        "<HHII", 0x4002, 0, 12, 0
+    )
     return emf_record(70, struct.pack("<I", len(plus)) + plus)
 
 
