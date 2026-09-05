@@ -1,0 +1,59 @@
+[build-system]
+requires = ["setuptools>=77.0.3", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "metafile-render"
+version = "0.1.0"
+description = "Render WMF and EMF files to SVG, PNG, JPEG, and WebP"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{name = "Xiaomeng Zhao (myhloli)"}]
+requires-python = ">=3.10,<3.15"
+keywords = ["wmf", "emf", "metafile", "svg", "png", "jpeg", "webp", "rendering"]
+classifiers = [
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Operating System :: OS Independent",
+    "Topic :: Multimedia :: Graphics :: Graphics Conversion",
+    "Typing :: Typed",
+]
+dependencies = [
+    "pillow>=11.0.0; python_version < '3.14'",
+    "pillow>=12.0.0; python_version >= '3.14'",
+    "pyclipper>=1.3.0,<2; python_version < '3.14'",
+    "pyclipper>=1.4.0,<2; python_version >= '3.14'",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8", "pypptx-with-oxml>=1.0.3,<2"]
+dev = ["metafile-render[test]", "ruff", "build", "twine"]
+
+[project.urls]
+Repository = "https://github.com/myhloli/metafile-render"
+Issues = "https://github.com/myhloli/metafile-render/issues"
+
+[project.scripts]
+metafile-render = "metafile_render.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+namespaces = false
+
+[tool.setuptools.package-data]
+metafile_render = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 128
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["C", "E", "F", "W", "ANN"]
+ignore = ["C901", "ANN204", "ANN401"]
