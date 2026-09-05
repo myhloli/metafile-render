@@ -130,4 +130,19 @@ def test_installed_console_script_and_module_version() -> None:
     script = subprocess.run([executable, "--version"], capture_output=True, text=True, check=False)
     module = _run(["--version"])
     assert script.returncode == module.returncode == 0
-    assert script.stdout == module.stdout == "metafile-render 0.1.0\n"
+    assert script.stdout == module.stdout == "metafile-render 0.2.0\n"
+
+
+def test_cli_emfplus_only_partial_and_error(tmp_path: Path) -> None:
+    """安装入口可转换 Only 文件，并区分局部降级与无支持内容。"""
+    from _emfplus_test_utils import fill_rect, plus_file, plus_record
+
+    source, target = tmp_path / "only.emf", tmp_path / "only.webp"
+    source.write_bytes(plus_file([plus_record(0x4023, flags=1), fill_rect()]))
+    result = _run([str(source), "-o", str(target)])
+    assert result.returncode == 0 and target.exists()
+    assert "partial rendering" in result.stderr and "emfplus_rendering_approximation" in result.stderr
+    source.write_bytes(plus_file([]))
+    target.unlink()
+    result = _run([str(source), "-o", str(target)])
+    assert result.returncode == 1 and not target.exists()

@@ -634,7 +634,7 @@ def test_vector_only_metafile_uses_4x_antialiasing_and_2x_svg_fallback() -> None
         assert image.info["dpi"][0] == pytest.approx(192, abs=1)
 
 
-def test_emfplus_dual_uses_emf_fallback_and_only_is_rejected() -> None:
+def test_emfplus_dual_uses_emf_fallback_and_empty_only_is_rejected() -> None:
     """验证 EMF+ Dual 播放 EMF fallback，Only 返回稳定不支持错误。"""
     records = [emfplus_comment(dual=True), emf_create_brush(1, 0x0000FF00), emf_select_object(1), emf_rectangle(5, 5, 95, 95)]
     dual = render_metafile(build_emf(records))

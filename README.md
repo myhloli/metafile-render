@@ -83,10 +83,33 @@ individual diagnostic fields.
 
 ## Rendering and fonts
 
-Placeable and standard WMF, common EMF drawing records, text, DIB images, paths,
-transforms, clipping, and common raster operations are supported. EMF+ Dual uses
-the EMF fallback; EMF+ Only is unsupported. Unhandled records may produce partial
-results with diagnostics. This is not a complete implementation of every GDI record.
+Placeable and standard WMF and common EMF drawing records are supported.
+EMF+ Only supports bounded object definitions (including continued objects), solid
+brushes and pens, paths, basic shapes, world/page transforms, Save/Restore and
+containers, rectangle/path clipping, compressed PNG/JPEG and common 24/32-bit
+RGB/ARGB/PARGB bitmaps, and horizontal Unicode strings with basic alignment.
+Unicode driver strings support explicit positions; glyph-index text is skipped.
+Only files also replay EMF drawing inside GetDC intervals. EMF+ Dual retains its
+existing EMF fallback path and does not draw both streams.
+
+Version 0.2.0 prioritizes usable content over pixel-identical GDI+ reproduction:
+
+- Linear gradients use the start color; path gradients use the center color;
+  hatch brushes use the foreground color. Texture fills without a representative
+  color are skipped.
+- Font substitutions, text spacing, antialiasing and bitmap sampling can differ
+  from native GDI+. Advanced wrapping, trimming and text formatting are approximated.
+- Complex Region objects, cardinal splines, nested metafile images, glyph-index or
+  vertical text, image effects and custom caps are not fully implemented.
+- SourceCopy uses SourceOver. Non-default quality settings use the existing renderer.
+- Unsupported objects replace their slots with an unavailable object; stale objects
+  are never reused. Unsafe unsupported state changes stop later drawing while the
+  remaining record boundaries are still checked.
+
+Approximations and skipped features produce `partial=True` with diagnostic codes,
+record types and source offsets. Only files with no supported drawing operations
+raise `MetafileUnsupportedError`. Malformed structures and resource overflows
+continue to raise their specific errors. This is not complete GDI+ compatibility.
 
 Font lookup uses installed system fonts and common aliases, then Pillow's default
 font. Install the fonts used by the source document for closer text fidelity;
@@ -123,10 +146,15 @@ Real EMF test images are read from a test-only presentation package dependency.
 
 Releases use PyPI Trusted Publishing. Configure the PyPI pending publisher with
 project `metafile-render`, owner `myhloli`, repository `metafile-render`, workflow
-`publish.yml`, and environment `pypi`. Publishing a GitHub Release such as `v0.1.0`
+`publish.yml`, and environment `pypi`. Publishing a GitHub Release such as `v0.2.0`
 runs tests, verifies that the tag matches the package version, builds the wheel
 and source distribution, and uploads them through OIDC.
 
 ## License
 
 MIT. Copyright (c) 2026 Xiaomeng Zhao (myhloli).
+
+Native GDI+ Only/Dual fixtures and reference PNGs are included in the source tests.
+Regenerate them on Windows with `./tools/generate_emfplus_fixtures.ps1` or the
+"Generate GDI+ fixtures" workflow. Geometric semantics are tested independently
+of font-specific pixel differences.

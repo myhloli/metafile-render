@@ -42,6 +42,7 @@ from .models import (
     BLACK,
     WHITE,
     Brush,
+    ClearCommand,
     ClipOperation,
     Color,
     DrawCommand,
@@ -617,6 +618,8 @@ def _commands_bounds(commands: list[DrawCommand]) -> Rect | None:
                         command.origin[1] + command.font_height * 0.25,
                     )
                 )
+        elif isinstance(command, ClearCommand):
+            rectangles.append(command.bounds)
         else:
             xs = [point[0] for point in command.destination]
             ys = [point[1] for point in command.destination]
@@ -678,37 +681,50 @@ def _detect_source_format(data: bytes) -> MetafileSourceFormat:
 
 
 def _scan_emfplus_mode(data: bytes, start: int, end: int) -> EmfPlusMode:
-    """预扫描 EMR_COMMENT 中的 EMF+ header 并识别 Only/Dual。"""
+    """严格扫描子记录边界及真实 Header，避免坏 EMF+ 被误判为普通 EMF。"""
+    from .emfplus.binary import Cursor, comment_records
+
+    reader = BoundedReader(data)
     offset = start
-    found_header = False
-    found_dual = False
-    record_count = 0
-    while offset + 8 <= end:
-        record_type, record_size = struct.unpack_from("<II", data, offset)
-        record_count += 1
-        if record_count > MAX_RECORDS:
-            raise MetafileResourceLimitError(f"EMF exceeds max_records={MAX_RECORDS}")
-        if record_size < 8 or record_size % 4 or record_size > end - offset:
-            raise MetafileMalformedError(f"invalid EMF record while scanning comments: offset={offset}, size={record_size}")
-        if record_type == 70 and record_size >= 28:
-            data_size = struct.unpack_from("<I", data, offset + 8)[0]
-            if data_size <= record_size - 12 and struct.unpack_from("<I", data, offset + 12)[0] == _EMFPLUS_SIGNATURE:
-                payload_offset = offset + 16
-                payload_end = offset + 12 + data_size
-                while payload_offset + 12 <= payload_end:
-                    plus_type, flags, plus_size, plus_data_size = struct.unpack_from("<HHII", data, payload_offset)
-                    if plus_size < 12 or plus_size > payload_end - payload_offset or plus_data_size > plus_size - 12:
-                        break
-                    if plus_type == 0x4001:
-                        found_header = True
-                        found_dual = found_dual or bool(flags & 1)
-                    payload_offset += plus_size
-        offset += record_size
+    mode: EmfPlusMode = "none"
+    count = 0
+    plus_count = 0
+    eof = False
+    while offset < end:
+        record = reader.subreader(offset, 8)
+        record_type, size = record.u32(0), record.u32(4)
+        count += 1
+        if count > MAX_RECORDS:
+            raise MetafileResourceLimitError("EMF exceeds record budget")
+        if size < 8 or size % 4 or size > end - offset:
+            raise MetafileMalformedError("invalid EMF record while scanning comments")
+        if record_type == 70:
+            for item in comment_records(reader.subreader(offset, size)):
+                plus_count += 1
+                if plus_count > MAX_RECORDS:
+                    raise MetafileResourceLimitError("EMF+ exceeds record budget")
+                if eof or mode == "none" and item.kind != 0x4001:
+                    raise MetafileMalformedError("EMF+ record outside Header/EOF boundaries")
+                if item.kind == 0x4001:
+                    if mode != "none" or len(item.payload) != 16:
+                        raise MetafileMalformedError("invalid or duplicate EMF+ Header")
+                    cursor = Cursor(item.payload)
+                    cursor.version()
+                    cursor.u32()
+                    dx, dy = cursor.u32(), cursor.u32()
+                    if not dx or not dy or max(dx, dy) > 100000:
+                        raise MetafileMalformedError("invalid EMF+ logical DPI")
+                    mode = "dual" if item.flags & 1 else "only"
+                elif item.kind == 0x4002:
+                    if len(item.payload):
+                        raise MetafileMalformedError("EMF+ EndOfFile must be empty")
+                    eof = True
+        offset += size
         if record_type == 14:
             break
-    if not found_header:
-        return "none"
-    return "dual" if found_dual else "only"
+    if mode != "none" and not eof:
+        raise MetafileMalformedError("EMF+ stream has no EndOfFile")
+    return mode
 
 
 def _parse_emf_header(data: bytes, dpi: int, size_hint: tuple[int, int] | None) -> _HeaderInfo:
@@ -741,6 +757,13 @@ def _parse_emf_header(data: bytes, dpi: int, size_hint: tuple[int, int] | None) 
     if pixel_size is None and bounds.width != 0 and bounds.height != 0:
         pixel_size = max(1, round(abs(bounds.width))), max(1, round(abs(bounds.height)))
     emfplus_mode = _scan_emfplus_mode(data, 0, declared_bytes)
+    if emfplus_mode == "only" and frame.width > 0 and frame.height > 0:
+        bounds = Rect(
+            frame.left * device_scale[0] / 100,
+            frame.top * device_scale[1] / 100,
+            frame.right * device_scale[0] / 100,
+            frame.bottom * device_scale[1] / 100,
+        )
     return _HeaderInfo(
         source_format="emf",
         record_start=0,
@@ -817,8 +840,6 @@ def parse_metafile(
         raise ValueError("size_hint must contain two positive integers")
     source_format = _detect_source_format(data)
     header = _parse_emf_header(data, dpi, size_hint) if source_format == "emf" else _parse_wmf_header(data, dpi, size_hint)
-    if header.emfplus_mode == "only":
-        raise MetafileUnsupportedError("EMF+ Only metafiles are not supported")
     diagnostics = _DiagnosticSink()
     playback = _Playback(header, diagnostics)
     if source_format == "emf":
@@ -1124,6 +1145,17 @@ def _append_image_command(
 
 def _play_emf(data: bytes, header: _HeaderInfo, playback: _Playback) -> None:
     """按文件顺序验证并回放全部 EMF records。"""
+    from .emfplus.playback import EmfPlusPlayback
+
+    plus = (
+        EmfPlusPlayback(
+            playback,
+            header.bounds or Rect(0, 0, 1, 1),
+            (header.device_pixels_per_mm[0] * 25.4, header.device_pixels_per_mm[1] * 25.4),
+        )
+        if header.emfplus_mode == "only"
+        else None
+    )
     offset = header.record_start
     record_index = 0
     saw_eof = False
@@ -1138,13 +1170,18 @@ def _play_emf(data: bytes, header: _HeaderInfo, playback: _Playback) -> None:
             raise MetafileMalformedError(f"invalid EMF record size at offset={offset}: {record_size}")
         playback.set_record_context(record_type, record_index, offset)
         record = BoundedReader(memoryview(data)[offset : offset + record_size], base_offset=offset)
-        _handle_emf_record(record_type, record, playback)
+        if plus is not None and record_type == 70:
+            plus.comment(record)
+        elif plus is None or plus.gdi_active and not plus.halted and record_type not in {1, 14}:
+            _handle_emf_record(record_type, record, playback)
         offset += record_size
         if record_type == 14:
             saw_eof = True
             break
     if not saw_eof:
         raise MetafileMalformedError("EMF record stream does not contain EMR_EOF")
+    if plus is not None:
+        plus.finish()
 
 
 def _play_wmf(data: bytes, header: _HeaderInfo, playback: _Playback) -> None:

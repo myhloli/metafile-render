@@ -1,0 +1,20 @@
+name: Generate GDI+ fixtures
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/emfplus-only]
+    paths: [tools/generate_emfplus_fixtures.ps1, .github/workflows/fixtures.yml]
+permissions:
+  contents: read
+jobs:
+  generate:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate native fixtures
+        shell: powershell
+        run: ./tools/generate_emfplus_fixtures.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gdiplus-fixtures
+          path: tests/fixtures/gdiplus/*
