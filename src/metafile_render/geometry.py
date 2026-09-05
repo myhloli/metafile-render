@@ -9,7 +9,8 @@ from math import atan2, ceil, cos, hypot, pi, sin
 from typing import Iterable
 
 from .limits import MAX_FLATTENED_POINTS
-from .models import GraphicsPath, Matrix, MetafileResourceLimitError, PathSegment, Point, Rect
+from .models import MetafileResourceLimitError
+from .primitives import GraphicsPath, Matrix, PathSegment, Point, Rect
 
 _ELLIPSE_KAPPA = 0.5522847498307936
 _DEFAULT_FLATNESS = 0.25

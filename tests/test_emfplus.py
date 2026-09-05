@@ -30,9 +30,9 @@ from metafile_render import (
     render_metafile,
 )
 from metafile_render.binary import BoundedReader
+from metafile_render.commands import DrawTextCommand
 from metafile_render.emfplus import playback
 from metafile_render.emfplus.binary import Cursor
-from metafile_render.models import DrawTextCommand
 from metafile_render.parser import parse_metafile
 
 

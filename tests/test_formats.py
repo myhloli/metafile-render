@@ -9,6 +9,7 @@ from PIL import Image
 
 from metafile_render import MetafileResourceLimitError, MetafileUnsupportedError, render_metafile
 from metafile_render import render as renderer
+from metafile_render.backends import svg
 
 
 def test_webp_preserves_alpha_and_uses_lossy_quality_90(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -49,8 +50,8 @@ def test_webp_missing_encoder_is_explicit(monkeypatch: pytest.MonkeyPatch) -> No
 def test_svg_budget_stops_before_expensive_image_encoding(monkeypatch: pytest.MonkeyPatch) -> None:
     """超限 SVG 必须在继续编码昂贵位图节点前失败。"""
     image_element = Mock(side_effect=AssertionError("must not encode image element"))
-    monkeypatch.setattr(renderer, "MAX_GENERATED_SVG_BYTES", 1)
-    monkeypatch.setattr(renderer, "_svg_image_element", image_element)
+    monkeypatch.setattr(svg, "MAX_GENERATED_SVG_BYTES", 1)
+    monkeypatch.setattr(svg, "_svg_image_element", image_element)
     with pytest.raises(MetafileResourceLimitError, match="max_generated_svg_bytes"):
         render_metafile(build_emf([emf_stretch_dib()]), output_format="svg")
     image_element.assert_not_called()

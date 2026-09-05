@@ -10,7 +10,7 @@ from pathlib import Path
 
 from PIL import ImageFont
 
-from .models import Font
+from .primitives import Font
 
 
 def _font_search_roots() -> tuple[Path, ...]:

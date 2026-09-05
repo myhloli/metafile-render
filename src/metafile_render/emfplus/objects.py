@@ -13,7 +13,8 @@ from PIL import Image, UnidentifiedImageError
 from ..binary import BoundedReader
 from ..geometry import PathBuilder
 from ..limits import MAX_CANVAS_DIMENSION, MAX_CANVAS_PIXELS, MAX_EMBEDDED_BITMAP_BYTES
-from ..models import Color, Font, GraphicsPath, MetafileMalformedError, MetafileResourceLimitError, Pen
+from ..models import MetafileMalformedError, MetafileResourceLimitError
+from ..primitives import Color, Font, GraphicsPath, Pen
 from .binary import Cursor, argb
 
 Warn: TypeAlias = Callable[[str, str], None]
