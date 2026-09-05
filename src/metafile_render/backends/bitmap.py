@@ -9,30 +9,36 @@ from math import ceil, floor
 
 from PIL import Image, UnidentifiedImageError
 
-from ..commands import DrawImageCommand
+from ..commands import DibPayload, DrawImageCommand, EncodedImage
+from ..dib import dib_dimensions, validate_dib_payload
 from ..geometry import FlattenBudget
 from ..limits import MAX_CANVAS_PIXELS, MAX_EMBEDDED_BITMAP_BYTES
 from ..models import MetafileMalformedError, MetafileResourceLimitError
 from ..primitives import Matrix, Point, Rect
 from .paths import _apply_clip
+from .session import RenderSession
 
 
 def _dib_to_bmp(command: DrawImageCommand) -> bytes:
     """为分离的 DIB header 和像素数据补齐 BMP 文件头。"""
-    if len(command.dib_header) < 4:
+    if not isinstance(command.image, DibPayload):
+        raise MetafileMalformedError("expected DIB payload")
+    if len(command.image.header) < 4:
         raise MetafileMalformedError("DIB header is truncated")
-    pixel_offset = 14 + len(command.dib_header)
-    total_size = pixel_offset + len(command.bits)
+    pixel_offset = 14 + len(command.image.header)
+    total_size = pixel_offset + len(command.image.bits)
     if total_size > MAX_EMBEDDED_BITMAP_BYTES + 14:
         raise MetafileResourceLimitError("decoded BMP exceeds the embedded bitmap byte budget")
     import struct
 
-    return b"BM" + struct.pack("<IHHI", total_size, 0, 0, pixel_offset) + command.dib_header + command.bits
+    return b"BM" + struct.pack("<IHHI", total_size, 0, 0, pixel_offset) + command.image.header + command.image.bits
 
 
 def _decode_raw_alpha_dib(command: DrawImageCommand) -> Image.Image | None:
     """对 AC_SRC_ALPHA 的常见 32 位 DIB 保留原始 alpha 字节。"""
-    header = command.dib_header
+    if not isinstance(command.image, DibPayload):
+        return None
+    header = command.image.header
     if len(header) < 40:
         return None
     import struct
@@ -43,14 +49,14 @@ def _decode_raw_alpha_dib(command: DrawImageCommand) -> Image.Image | None:
     if header_size < 40 or width <= 0 or signed_height == 0 or bit_count != 32 or compression not in {0, 3, 6}:
         return None
     height = abs(signed_height)
-    if width * height > MAX_CANVAS_PIXELS or len(command.bits) < width * height * 4:
+    if width * height > MAX_CANVAS_PIXELS or len(command.image.bits) < width * height * 4:
         raise MetafileResourceLimitError("32-bit DIB exceeds pixel budget or is truncated")
     orientation = -1 if signed_height > 0 else 1
     try:
         premultiplied = Image.frombytes(
             "RGBa",
             (width, height),
-            command.bits[: width * height * 4],
+            command.image.bits[: width * height * 4],
             "raw",
             "BGRa",
             width * 4,
@@ -63,37 +69,36 @@ def _decode_raw_alpha_dib(command: DrawImageCommand) -> Image.Image | None:
 
 def _validate_dib_dimensions(header: bytes) -> None:
     """在进入 Pillow decoder 前验证 DIB 声明尺寸与固定像素预算。"""
-    if len(header) < 12:
-        raise MetafileMalformedError("DIB header is truncated")
-    import struct
-
-    header_size = struct.unpack_from("<I", header, 0)[0]
-    if header_size == 12:
-        width, height = struct.unpack_from("<HH", header, 4)
-    elif header_size >= 40 and len(header) >= 40:
-        width, signed_height = struct.unpack_from("<ii", header, 4)
-        height = abs(signed_height)
-    else:
-        raise MetafileMalformedError(f"unsupported or truncated DIB header size: {header_size}")
-    if width <= 0 or height <= 0 or width * height > MAX_CANVAS_PIXELS:
-        raise MetafileResourceLimitError(f"DIB dimensions exceed pixel budget: {width}x{height}")
+    dib_dimensions(header)
 
 
-def _decode_dib(command: DrawImageCommand) -> Image.Image:
+def _decode_dib(command: DrawImageCommand, session: RenderSession | None = None) -> Image.Image:
+    """按不可变图片载荷复用解码结果，对调用方只暴露独立副本。"""
+    key = ("image", command.image)
+    cached = session.cache.get(key) if session is not None else None
+    if cached is not None:
+        return cached
+    image = _decode_image_payload(command)
+    if session is not None:
+        session.cache.put(key, image)
+    return image
+
+
+def _decode_image_payload(command: DrawImageCommand) -> Image.Image:
     """严格解码 DIB，并在需要时恢复源 alpha。"""
-    if command.encoded_png is not None:
-        if len(command.encoded_png) > MAX_EMBEDDED_BITMAP_BYTES:
+    if isinstance(command.image, EncodedImage):
+        if len(command.image.png) > MAX_EMBEDDED_BITMAP_BYTES:
             raise MetafileResourceLimitError("normalized image exceeds byte budget")
         try:
-            with Image.open(BytesIO(command.encoded_png)) as image:
+            with Image.open(BytesIO(command.image.png)) as image:
                 if image.format != "PNG" or image.width * image.height > MAX_CANVAS_PIXELS:
                     raise MetafileMalformedError("invalid normalized EMF+ bitmap")
                 image.load()
                 return image.convert("RGBA")
         except (OSError, ValueError) as exc:
             raise MetafileMalformedError("normalized EMF+ bitmap cannot be decoded") from exc
-    _validate_dib_dimensions(command.dib_header)
-    if command.use_source_alpha:
+    validate_dib_payload(command.image)
+    if command.image.use_source_alpha:
         raw_alpha = _decode_raw_alpha_dib(command)
         if raw_alpha is not None:
             return raw_alpha
@@ -108,7 +113,7 @@ def _decode_dib(command: DrawImageCommand) -> Image.Image:
         raise
     except (Image.DecompressionBombError, UnidentifiedImageError, OSError, SyntaxError, ValueError) as exc:
         raise MetafileMalformedError("embedded DIB cannot be decoded by Pillow") from exc
-    if not command.use_source_alpha:
+    if not command.image.use_source_alpha:
         decoded.putalpha(255)
     return decoded
 
@@ -206,9 +211,10 @@ def _render_image_command(
     matrix: Matrix,
     size: tuple[int, int],
     budget: FlattenBudget,
+    session: RenderSession | None = None,
 ) -> Image.Image:
     """解码、裁剪并仿射放置单条位图命令。"""
-    image, source_fraction = _crop_source(_decode_dib(command), command.source)
+    image, source_fraction = _crop_source(_decode_dib(command, session), command.source)
     if image is None:
         return Image.new("RGBA", size, (0, 0, 0, 0))
     if command.constant_alpha < 255:
@@ -216,7 +222,7 @@ def _render_image_command(
         image.putalpha(alpha)
     destination = _crop_destination(command.destination, source_fraction)
     layer = _affine_image_layer(image, destination, matrix, size, command.stretch_mode)
-    _apply_clip(layer, command.clip, matrix, budget)
+    _apply_clip(layer, command.clip, matrix, budget, session)
     return layer
 
 

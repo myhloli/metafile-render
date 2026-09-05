@@ -8,16 +8,18 @@ import base64
 from html import escape
 from io import BytesIO
 
-from ..commands import ClearCommand, DrawImageCommand, DrawPathCommand, DrawTextCommand, MetafileDocument
+from ..commands import ClearCommand, DrawImageCommand, DrawPathCommand, DrawTextCommand, MetafileDocument, TextAlignment
 from ..geometry import transform_path
-from ..limits import MAX_CANVAS_PIXELS, MAX_GENERATED_SVG_BYTES, MAX_RENDER_WORK_PIXELS
+from ..limits import MAX_GENERATED_SVG_BYTES
 from ..models import MetafileResourceLimitError
 from ..primitives import Brush, ClipOperation, ClipStack, Color, GraphicsPath, Matrix, Pen, Rect
+from ..sizing import choose_raster_scale
 from .bitmap import _crop_destination, _crop_source, _decode_dib
-from .constants import _SRCCOPY, _TA_BASELINE, _TA_BOTTOM, _TA_CENTER, _TA_RIGHT
-from .mapping import _document_matrix, _mapped_rect
+from .constants import _SRCCOPY
+from .mapping import _document_matrix
 from .raster import _png_fallback_bytes
-from .text import _aligned_text_positions
+from .session import RenderSession
+from .text import _aligned_text_positions, _text_anchor, _text_background_bounds
 
 
 def _svg_number(value: float) -> str:
@@ -31,12 +33,15 @@ def _svg_number(value: float) -> str:
 def _svg_path_data(path: GraphicsPath, matrix: Matrix) -> str:
     """把统一路径转换为安全 SVG path data。"""
     parts: list[str] = []
+    estimated_bytes = 0
     for segment in transform_path(path, matrix).segments:
         if segment.verb == "Z":
             parts.append("Z")
             continue
         coordinates = " ".join(f"{_svg_number(point[0])} {_svg_number(point[1])}" for point in segment.points)
         parts.append(f"{segment.verb} {coordinates}")
+        estimated_bytes += len(parts[-1]) + 1
+        _check_svg_size_budget(estimated_bytes)
     return " ".join(parts)
 
 
@@ -81,6 +86,7 @@ def _svg_clip_definitions(document: MetafileDocument, matrix: Matrix) -> tuple[l
     definitions: list[str] = []
     identifiers: dict[ClipOperation, str] = {}
     ordinal = 0
+    estimated_bytes = 0
     for command in document.commands:
         for operation in command.clip:
             if operation in identifiers:
@@ -92,6 +98,8 @@ def _svg_clip_definitions(document: MetafileDocument, matrix: Matrix) -> tuple[l
                 f'<clipPath id="{identifier}"><path d="{_svg_path_data(operation.path, matrix)}" '
                 f'fill-rule="{operation.fill_rule}"/></clipPath>'
             )
+            estimated_bytes += len(definitions[-1].encode("utf-8"))
+            _check_svg_size_budget(estimated_bytes)
     return definitions, identifiers
 
 
@@ -109,24 +117,20 @@ def _wrap_svg_clip(element: str, clip: ClipStack, identifiers: dict[ClipOperatio
     return wrapped
 
 
-def _svg_text_anchor(text_align: int) -> tuple[str, str]:
-    """把 GDI 文字对齐转换为 SVG anchor 和 baseline。"""
-    horizontal = "middle" if text_align & _TA_CENTER == _TA_CENTER else "end" if text_align & _TA_RIGHT else "start"
-    vertical = (
-        "alphabetic"
-        if text_align & _TA_BASELINE == _TA_BASELINE
-        else "text-after-edge"
-        if text_align & _TA_BOTTOM
-        else "hanging"
+def _svg_text_anchor(alignment: TextAlignment) -> tuple[str, str]:
+    """将统一文字对齐映射为 SVG anchor 和 baseline。"""
+    return (
+        {"left": "start", "center": "middle", "right": "end"}[alignment.horizontal],
+        {"top": "hanging", "bottom": "text-after-edge", "baseline": "alphabetic"}[alignment.vertical],
     )
-    return horizontal, vertical
 
 
-def _svg_text_elements(command: DrawTextCommand, matrix: Matrix) -> str:
+def _svg_text_elements(command: DrawTextCommand, matrix: Matrix, session: RenderSession | None = None) -> str:
     """把统一文字命令转换为一个或多个安全 SVG text 元素。"""
-    anchor, baseline = _svg_text_anchor(command.text_align)
+    anchor, baseline = _svg_text_anchor(command.alignment)
     scale_y = max(abs(matrix.d), 1e-9)
     font_size = max(1.0, command.font_height * scale_y)
+    font = (session or RenderSession()).font(command, max(1, round(font_size))).font
     decorations = []
     if command.font.underline:
         decorations.append("underline")
@@ -158,15 +162,10 @@ def _svg_text_elements(command: DrawTextCommand, matrix: Matrix) -> str:
         )
     background = ""
     if command.opaque:
-        if command.bounds is not None:
-            rect = _mapped_rect(command.bounds, matrix).normalized()
-        else:
-            approximate_widths = tuple(max(font_size * 0.6 * len(text), font_size * 0.25) for text in texts)
-            left = min(position[0] for position in mapped_positions)
-            right = max(position[0] + width for position, width in zip(mapped_positions, approximate_widths))
-            top = min(position[1] - font_size for position in mapped_positions)
-            bottom = max(position[1] + font_size * 0.25 for position in mapped_positions)
-            rect = Rect(left, top, right, bottom)
+        pillow_anchor = _text_anchor(command.alignment)
+        if positioned_run:
+            pillow_anchor = "l" + pillow_anchor[1]
+        rect = Rect(*_text_background_bounds(command, matrix, font, list(mapped_positions), texts, pillow_anchor))
         background = (
             f'<rect x="{_svg_number(rect.left)}" y="{_svg_number(rect.top)}" width="{_svg_number(rect.width)}" '
             f'height="{_svg_number(rect.height)}" fill="{command.background_color.svg()}"'
@@ -175,9 +174,9 @@ def _svg_text_elements(command: DrawTextCommand, matrix: Matrix) -> str:
     return background + "".join(elements)
 
 
-def _svg_image_element(command: DrawImageCommand, matrix: Matrix) -> str:
+def _svg_image_element(command: DrawImageCommand, matrix: Matrix, session: RenderSession | None = None) -> str:
     """把 DIB 转成内嵌 PNG 并以 SVG affine matrix 放置。"""
-    image, source_fraction = _crop_source(_decode_dib(command), command.source)
+    image, source_fraction = _crop_source(_decode_dib(command, session), command.source)
     if image is None:
         return ""
     if command.constant_alpha < 255:
@@ -214,20 +213,7 @@ def _svg_requires_raster(document: MetafileDocument) -> bool:
 
 def _svg_fallback_scale(document: MetafileDocument) -> int:
     """为纯矢量 SVG fallback 选择最高 2× 的安全像素密度。"""
-    if any(isinstance(command, DrawImageCommand) for command in document.commands):
-        return 1
-    command_count = max(len(document.commands), 1)
-    for factor in (2,):
-        width = document.width * factor
-        height = document.height * factor
-        if (
-            width <= 8192
-            and height <= 8192
-            and width * height <= MAX_CANVAS_PIXELS
-            and width * height * command_count <= MAX_RENDER_WORK_PIXELS
-        ):
-            return factor
-    return 1
+    return choose_raster_scale(document, maximum=2)
 
 
 def _svg_fallback_metadata(encoded_png: str) -> str:
@@ -249,9 +235,9 @@ def _check_svg_size_budget(estimated_bytes: int) -> None:
         raise MetafileResourceLimitError(f"generated SVG exceeds max_generated_svg_bytes={MAX_GENERATED_SVG_BYTES}")
 
 
-def _raster_wrapped_svg(document: MetafileDocument) -> bytes:
+def _raster_wrapped_svg(document: MetafileDocument, session: RenderSession | None = None) -> bytes:
     """把 Pillow 结果封装为没有外部引用的单图片 SVG。"""
-    encoded = base64.b64encode(_png_fallback_bytes(document)).decode("ascii")
+    encoded = base64.b64encode(_png_fallback_bytes(document, session=session)).decode("ascii")
     _check_svg_size_budget(len(encoded) * 2)
     markup = (
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{document.width}" height="{document.height}" '
@@ -263,16 +249,16 @@ def _raster_wrapped_svg(document: MetafileDocument) -> bytes:
     return _encode_svg_markup(markup)
 
 
-def render_svg(document: MetafileDocument) -> bytes:
+def render_svg(document: MetafileDocument, session: RenderSession | None = None) -> bytes:
     """把统一图元文档渲染为安全、自包含 SVG 字节。"""
     if _svg_requires_raster(document):
-        return _raster_wrapped_svg(document)
+        return _raster_wrapped_svg(document, session)
     matrix = _document_matrix(document)
     definitions, clip_ids = _svg_clip_definitions(document, matrix)
     fallback_scale = _svg_fallback_scale(document)
-    fallback = base64.b64encode(_png_fallback_bytes(document, pixel_scale=fallback_scale)).decode("ascii")
+    fallback = base64.b64encode(_png_fallback_bytes(document, pixel_scale=fallback_scale, session=session)).decode("ascii")
     fallback_metadata = _svg_fallback_metadata(fallback)
-    estimated_bytes = len(fallback_metadata) + 256
+    estimated_bytes = len(fallback_metadata) + 256 + sum(len(item.encode("utf-8")) for item in definitions)
     _check_svg_size_budget(estimated_bytes)
     elements: list[str] = []
     for command in document.commands:
@@ -286,9 +272,9 @@ def render_svg(document: MetafileDocument) -> bytes:
             fill = _svg_brush_attributes(command.brush) if command.fill else 'fill="none"'
             element = f'<path d="{_svg_path_data(command.path, matrix)}" {stroke} {fill} fill-rule="{command.fill_rule}"/>'
         elif isinstance(command, DrawTextCommand):
-            element = _svg_text_elements(command, matrix)
+            element = _svg_text_elements(command, matrix, session)
         else:
-            element = _svg_image_element(command, matrix)
+            element = _svg_image_element(command, matrix, session)
         elements.append(_wrap_svg_clip(element, command.clip, clip_ids))
         estimated_bytes += len(elements[-1].encode("utf-8"))
         _check_svg_size_budget(estimated_bytes)

@@ -10,6 +10,7 @@ from typing import Literal, TypeAlias
 MetafileSourceFormat: TypeAlias = Literal["wmf", "emf"]
 
 
+MetafileBackend: TypeAlias = Literal["auto", "replay"]
 MetafileOutputFormat: TypeAlias = Literal["png", "jpeg", "svg", "webp"]
 
 
@@ -71,6 +72,7 @@ class MetafileRenderResult:
 
 
 __all__ = [
+    "MetafileBackend",
     "MetafileSourceFormat",
     "MetafileOutputFormat",
     "EmfPlusMode",

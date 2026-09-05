@@ -58,10 +58,11 @@ from metafile_render import (
     MetafileMalformedError,
     MetafileResourceLimitError,
     MetafileUnsupportedError,
+    limits,
     render_metafile,
 )
 from metafile_render import parser as metafile_parser
-from metafile_render.commands import DrawImageCommand, DrawPathCommand, DrawTextCommand
+from metafile_render.commands import DibPayload, DrawImageCommand, DrawPathCommand, DrawTextCommand
 from metafile_render.gdi import playback as gdi_playback
 from metafile_render.geometry import FlattenBudget, PathBuilder, flatten_path, path_bounds
 from metafile_render.primitives import ClipOperation, GraphicsPath, Matrix, Pen, Rect
@@ -120,9 +121,9 @@ def test_emf_renders_png_jpeg_and_safe_svg() -> None:
     """验证同一 EMF 可输出三种格式且 SVG 不含活动或外部内容。"""
     data = build_emf(_basic_emf_records())
 
-    png = render_metafile(data, output_format="png")
-    jpeg = render_metafile(data, output_format="jpeg")
-    svg = render_metafile(data, output_format="svg")
+    png = render_metafile(data, output_format="png", dpi=144, backend="replay")
+    jpeg = render_metafile(data, output_format="jpeg", dpi=144, backend="replay")
+    svg = render_metafile(data, output_format="svg", dpi=144, backend="replay")
 
     assert png.media_type == "image/png"
     assert png.data.startswith(b"\x89PNG\r\n\x1a\n")
@@ -151,12 +152,10 @@ def test_alpha_dib_unpremultiplies_channels_before_compositing() -> None:
     header = bytearray(40)
     struct.pack_into("<IiiHHIIiiII", header, 0, 40, 2, -1, 1, 32, 0, 8, 0, 0, 0, 0)
     command = DrawImageCommand(
-        dib_header=bytes(header),
-        bits=bytes((0, 0, 128, 128, 0, 64, 0, 64)),
+        image=DibPayload(bytes(header), bytes((0, 0, 128, 128, 0, 64, 0, 64)), use_source_alpha=True),
         destination=((0.0, 0.0), (2.0, 0.0), (2.0, 1.0), (0.0, 1.0)),
         source=None,
         rop=0,
-        use_source_alpha=True,
     )
 
     decoded = backends_bitmap._decode_raw_alpha_dib(command)
@@ -184,7 +183,7 @@ def test_emf_save_restore_preserves_selected_objects_and_transform() -> None:
         emf_restoredc(),
         emf_rectangle(25, 0, 45, 20),
     ]
-    image = _open_result(render_metafile(build_emf(records)).data)
+    image = _open_result(render_metafile(build_emf(records), dpi=144, backend="replay").data)
 
     assert image.getpixel((14, 14))[0] > 200
     assert image.getpixel((50, 14))[0] > 200
@@ -207,7 +206,7 @@ def test_emf_to_records_append_to_one_path_figure_and_update_current_position() 
         ]
     )
 
-    document = metafile_parser.parse_metafile(data)
+    document = metafile_parser.parse_metafile(data, dpi=144)
     commands = [command for command in document.commands if isinstance(command, DrawPathCommand)]
 
     assert [segment.verb for segment in commands[0].path.segments] == ["M", "L", "L", "C", "Z", "M", "L"]
@@ -228,7 +227,7 @@ def test_emf_non_to_polybezier_does_not_change_gdi_current_position() -> None:
         ]
     )
 
-    document = metafile_parser.parse_metafile(data)
+    document = metafile_parser.parse_metafile(data, dpi=144)
     commands = [command for command in document.commands if isinstance(command, DrawPathCommand)]
 
     assert commands[1].path.segments[0].points == ((5.0, 5.0),)
@@ -258,7 +257,9 @@ def test_emf_non_to_polybezier_does_not_change_gdi_current_position() -> None:
 )
 def test_updatecp_text_without_explicit_spacing_advances_current_position(data: bytes) -> None:
     """验证 EMF/WMF 无显式 spacing 的 TA_UPDATECP 文本不会相互覆盖。"""
-    commands = [command for command in metafile_parser.parse_metafile(data).commands if isinstance(command, DrawTextCommand)]
+    commands = [
+        command for command in metafile_parser.parse_metafile(data, dpi=144).commands if isinstance(command, DrawTextCommand)
+    ]
 
     assert len(commands) == 2
     assert commands[0].origin == (10.0, 50.0)
@@ -274,7 +275,9 @@ def test_explicit_spacing_applies_center_or_right_alignment_once(
     expected_x: tuple[float, float],
 ) -> None:
     """验证显式 DX 字符先按整串 alignment 平移，再从左侧 cell origin 绘制。"""
-    document = metafile_parser.parse_metafile(build_emf([emf_set_text_align(text_align), emf_text("AB", 50, 50, dx=10)]))
+    document = metafile_parser.parse_metafile(
+        build_emf([emf_set_text_align(text_align), emf_text("AB", 50, 50, dx=10)]), dpi=144
+    )
     command = next(command for command in document.commands if isinstance(command, DrawTextCommand))
     positions, positioned_run = backends_text._aligned_text_positions(command, Matrix(), list(command.positions))
     svg = backends_svg._svg_text_elements(command, Matrix())
@@ -324,7 +327,9 @@ def test_emf_anglearc_uses_sweep_direction_and_updates_current_position(
         [emf_angle_arc(0, 0, 10, 0.0, sweep_angle), emf_line_to(20, 20)],
         bounds=(-20, -20, 30, 30),
     )
-    commands = [command for command in metafile_parser.parse_metafile(data).commands if isinstance(command, DrawPathCommand)]
+    commands = [
+        command for command in metafile_parser.parse_metafile(data, dpi=144).commands if isinstance(command, DrawPathCommand)
+    ]
 
     assert len(commands[0].path.segments) == 14
     assert commands[0].path.segments[0].points == ((0.0, 0.0),)
@@ -342,7 +347,9 @@ def test_emf_arcto_connects_current_position_to_projected_arc_endpoints() -> Non
             emf_line_to(80, 80),
         ]
     )
-    commands = [command for command in metafile_parser.parse_metafile(data).commands if isinstance(command, DrawPathCommand)]
+    commands = [
+        command for command in metafile_parser.parse_metafile(data, dpi=144).commands if isinstance(command, DrawPathCommand)
+    ]
 
     assert commands[0].path.segments[0].points == ((10.0, 10.0),)
     assert commands[0].path.segments[1].points[0] == pytest.approx((100.0, 50.0))
@@ -364,7 +371,9 @@ def test_emf_stroke_and_fill_closes_every_open_figure() -> None:
         ]
     )
 
-    command = next(command for command in metafile_parser.parse_metafile(data).commands if isinstance(command, DrawPathCommand))
+    command = next(
+        command for command in metafile_parser.parse_metafile(data, dpi=144).commands if isinstance(command, DrawPathCommand)
+    )
 
     assert [segment.verb for segment in command.path.segments] == ["M", "L", "L", "Z", "M", "L", "L", "Z"]
 
@@ -529,6 +538,8 @@ def test_stroke_mask_honors_caps_and_svg_miter_limit() -> None:
             ]
         ),
         output_format="svg",
+        dpi=144,
+        backend="replay",
     ).data
 
     assert flat.getpixel((16, 50)) == 0
@@ -566,7 +577,7 @@ def test_bitmap_source_crop_preserves_empty_and_partial_destination_mapping() ->
 
 def test_placeable_wmf_renders_vector_content() -> None:
     """验证 placeable WMF 的 checksum、对象表和逻辑尺寸进入 PNG。"""
-    result = render_metafile(basic_wmf())
+    result = render_metafile(basic_wmf(), dpi=144, backend="replay")
     image = _open_result(result.data)
 
     assert result.source_format == "wmf"
@@ -579,7 +590,7 @@ def test_placeable_wmf_renders_vector_content() -> None:
 def test_wmf_roundrect_uses_record_parameter_order() -> None:
     """验证 META_ROUNDRECT 按 Height/Width/Bottom/Right/Top/Left 解码。"""
     payload = struct.pack("<hhhhhh", 100, 300, 900, 800, 200, 100)
-    document = metafile_parser.parse_metafile(build_placeable_wmf([wmf_record(0x061C, payload)]))
+    document = metafile_parser.parse_metafile(build_placeable_wmf([wmf_record(0x061C, payload)]), dpi=144)
     command = next(command for command in document.commands if isinstance(command, DrawPathCommand))
 
     assert path_bounds(command.path) == Rect(100.0, 200.0, 800.0, 900.0)
@@ -591,7 +602,7 @@ def test_standard_wmf_fallback_bounds_include_aligned_text(text_align: int) -> N
     """验证无 placeable header 时 CENTER/RIGHT 文本 bounds 不会从 origin 单向向右估算。"""
     standard_wmf = build_placeable_wmf([wmf_set_text_align(text_align), wmf_textout("AB", 100, 50)])[22:]
 
-    document = metafile_parser.parse_metafile(standard_wmf)
+    document = metafile_parser.parse_metafile(standard_wmf, dpi=144)
 
     assert document.bounds.left < 100.0
     if text_align == 2:
@@ -620,8 +631,8 @@ def test_fixed_wmf_map_modes_use_documented_physical_units(map_mode: int, millim
 
 def test_vector_only_metafile_uses_4x_antialiasing_and_2x_svg_fallback() -> None:
     """验证矢量公式保持逻辑尺寸，同时使用 4× 栅格和 2× DOCX fallback。"""
-    document = metafile_parser.parse_metafile(basic_wmf())
-    svg = render_metafile(basic_wmf(), output_format="svg").data
+    document = metafile_parser.parse_metafile(basic_wmf(), dpi=144)
+    svg = render_metafile(basic_wmf(), output_format="svg", dpi=144, backend="replay").data
     fallback, logical_width, logical_height = _svg_fallback(svg)
 
     assert backends_raster._supersample_factor(document) == 4
@@ -635,20 +646,20 @@ def test_vector_only_metafile_uses_4x_antialiasing_and_2x_svg_fallback() -> None
 def test_emfplus_dual_uses_emf_fallback_and_empty_only_is_rejected() -> None:
     """验证 EMF+ Dual 播放 EMF fallback，Only 返回稳定不支持错误。"""
     records = [emfplus_comment(dual=True), emf_create_brush(1, 0x0000FF00), emf_select_object(1), emf_rectangle(5, 5, 95, 95)]
-    dual = render_metafile(build_emf(records))
+    dual = render_metafile(build_emf(records), dpi=144, backend="replay")
 
     assert dual.emfplus_mode == "dual"
     assert _open_result(dual.data).getbbox() is not None
 
     only_data = build_emf([emfplus_comment(dual=False), emf_rectangle(5, 5, 95, 95)])
     with pytest.raises(MetafileUnsupportedError, match=r"EMF\+ Only"):
-        render_metafile(only_data)
+        render_metafile(only_data, dpi=144, backend="replay")
 
 
 def test_unknown_drawing_record_keeps_partial_result() -> None:
     """验证未知绘图 record 被跳过但其他内容继续输出。"""
     data = build_emf([emf_record(118, b"\x00" * 16), emf_rectangle(5, 5, 95, 95)])
-    result = render_metafile(data)
+    result = render_metafile(data, dpi=144, backend="replay")
 
     assert result.partial
     assert any(diagnostic.code == "unsupported_emf_record" for diagnostic in result.diagnostics)
@@ -660,15 +671,15 @@ def test_malformed_record_and_emf_signature_fail_closed() -> None:
     valid = bytearray(build_emf([emf_rectangle(5, 5, 95, 95)]))
     valid[92:96] = (0x7FFFFFFC).to_bytes(4, "little")
     with pytest.raises(MetafileMalformedError):
-        render_metafile(bytes(valid))
+        render_metafile(bytes(valid), dpi=144, backend="replay")
     with pytest.raises(MetafileMalformedError):
-        render_metafile(b"not-a-metafile")
+        render_metafile(b"not-a-metafile", dpi=144, backend="replay")
 
 
 def test_canvas_is_downscaled_to_fixed_pixel_budget() -> None:
     """验证巨大物理 frame 只会触发等比缩放而不会分配无界画布。"""
     data = build_emf([emf_rectangle(0, 0, 100, 100)], frame=(0, 0, 254000, 254000))
-    result = render_metafile(data)
+    result = render_metafile(data, dpi=144, backend="replay")
 
     assert result.width * result.height <= 16_000_000
     assert max(result.width, result.height) <= 8192
@@ -682,24 +693,24 @@ def test_fixed_record_point_and_state_limits_are_enforced(monkeypatch: pytest.Mo
         + (3).to_bytes(4, "little")
         + b"".join(value.to_bytes(4, "little", signed=True) for value in (0, 0, 50, 0, 25, 50))
     )
-    monkeypatch.setattr(gdi_playback, "MAX_POINTS_PER_RECORD", 2)
+    monkeypatch.setattr(limits, "MAX_POINTS_PER_RECORD", 2)
     with pytest.raises(MetafileResourceLimitError, match="max_points_per_record"):
-        render_metafile(build_emf([emf_record(3, polygon_payload)]))
+        render_metafile(build_emf([emf_record(3, polygon_payload)]), dpi=144, backend="replay")
 
-    monkeypatch.setattr(gdi_playback, "MAX_POINTS_PER_RECORD", 1_000_000)
+    monkeypatch.setattr(limits, "MAX_POINTS_PER_RECORD", 1_000_000)
     monkeypatch.setattr(gdi_playback, "MAX_STATE_DEPTH", 1)
     with pytest.raises(MetafileResourceLimitError, match="max_state_depth"):
-        render_metafile(build_emf([emf_savedc(), emf_savedc(), emf_rectangle(1, 1, 10, 10)]))
+        render_metafile(build_emf([emf_savedc(), emf_savedc(), emf_rectangle(1, 1, 10, 10)]), dpi=144, backend="replay")
 
     oversized_dib = bytearray(emf_stretch_dib())
     oversized_dib[84:88] = (100_000).to_bytes(4, "little", signed=True)
     oversized_dib[88:92] = (100_000).to_bytes(4, "little", signed=True)
     with pytest.raises(MetafileResourceLimitError, match="DIB dimensions"):
-        render_metafile(build_emf([bytes(oversized_dib)]))
+        render_metafile(build_emf([bytes(oversized_dib)]), dpi=144, backend="replay")
 
-    monkeypatch.setattr(backends_raster, "MAX_RENDER_WORK_PIXELS", 1)
+    monkeypatch.setattr(limits, "MAX_RENDER_WORK_PIXELS", 1)
     with pytest.raises(MetafileResourceLimitError, match="max_render_work_pixels"):
-        render_metafile(build_emf([emf_rectangle(1, 1, 10, 10)]))
+        render_metafile(build_emf([emf_rectangle(1, 1, 10, 10)]), dpi=144, backend="replay")
 
 
 def test_clip_stack_and_render_work_use_fixed_budgets(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -707,21 +718,21 @@ def test_clip_stack_and_render_work_use_fixed_budgets(monkeypatch: pytest.Monkey
     clip = emf_intersect_clip_rect(0, 0, 100, 100)
     monkeypatch.setattr(gdi_playback, "MAX_CLIP_OPERATIONS", 2)
     with pytest.raises(MetafileResourceLimitError, match="max_clip_operations=2"):
-        metafile_parser.parse_metafile(build_emf([clip, clip, clip, emf_rectangle(1, 1, 10, 10)]))
+        metafile_parser.parse_metafile(build_emf([clip, clip, clip, emf_rectangle(1, 1, 10, 10)]), dpi=144)
 
     monkeypatch.setattr(gdi_playback, "MAX_CLIP_OPERATIONS", 64)
-    monkeypatch.setattr(gdi_playback, "MAX_TOTAL_CLIP_OPERATIONS", 1)
+    monkeypatch.setattr(limits, "MAX_TOTAL_CLIP_OPERATIONS", 1)
     with pytest.raises(MetafileResourceLimitError, match="max_total_clip_operations=1"):
-        metafile_parser.parse_metafile(build_emf([clip, emf_rectangle(1, 1, 10, 10), emf_rectangle(20, 20, 30, 30)]))
+        metafile_parser.parse_metafile(build_emf([clip, emf_rectangle(1, 1, 10, 10), emf_rectangle(20, 20, 30, 30)]), dpi=144)
 
-    document = metafile_parser.parse_metafile(build_emf([clip, emf_rectangle(1, 1, 10, 10)]))
+    document = metafile_parser.parse_metafile(build_emf([clip, emf_rectangle(1, 1, 10, 10)]), dpi=144)
     assert backends_raster._render_work_units(document) == 2
 
 
 def test_svg_text_escapes_markup_characters() -> None:
     """验证 EMF 文字无法把脚本或 XML 标签注入 SVG。"""
     data = build_emf([emf_font(1), emf_select_object(1), emf_text("<script>&", 5, 30)])
-    svg = render_metafile(data, output_format="svg").data
+    svg = render_metafile(data, output_format="svg", dpi=144, backend="replay").data
 
     assert b"<script>" not in svg
     assert b"&lt;" in svg
@@ -747,18 +758,18 @@ def test_every_truncated_prefix_fails_without_unexpected_exception(data: bytes) 
     """验证每个截断位置都只产生稳定格式错误，不泄漏 struct/Pillow 异常。"""
     for size in range(len(data)):
         with pytest.raises(MetafileError):
-            render_metafile(data[:size])
+            render_metafile(data[:size], dpi=144, backend="replay")
 
 
 @pytest.mark.parametrize("name", ["docx-icon.emf", "generic-icon.emf", "pptx-icon.emf", "xlsx-icon.emf"])
 def test_real_python_pptx_emf_icons_render_without_partial_result(name: str) -> None:
     """验证依赖包内真实 Office EMF 图标的文字、alpha 和裁剪组合。"""
     template = Path(pptx.__file__).resolve().parent / "templates" / name
-    result = render_metafile(template.read_bytes())
+    result = render_metafile(template.read_bytes(), dpi=144, backend="replay")
     image = _open_result(result.data)
 
     assert not result.partial
-    assert result.diagnostics == ()
+    assert all(diagnostic.code == "font_substituted" and diagnostic.level == "info" for diagnostic in result.diagnostics)
     assert image.width >= 100
     assert image.height >= 90
     assert image.getbbox() is not None

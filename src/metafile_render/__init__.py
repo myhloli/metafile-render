@@ -4,6 +4,7 @@
 
 from .api import render_metafile
 from .models import (
+    MetafileBackend,
     MetafileDiagnostic,
     MetafileError,
     MetafileMalformedError,
@@ -14,6 +15,7 @@ from .models import (
 )
 
 __all__ = [
+    "MetafileBackend",
     "MetafileDiagnostic",
     "MetafileError",
     "MetafileMalformedError",

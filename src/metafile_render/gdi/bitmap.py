@@ -7,12 +7,13 @@ from __future__ import annotations
 import struct
 
 from ..binary import BoundedReader
-from ..commands import DrawImageCommand
+from ..commands import DibPayload, DrawImageCommand
 from ..limits import MAX_EMBEDDED_BITMAP_BYTES
 from ..models import MetafileMalformedError, MetafileResourceLimitError
 from ..primitives import Rect
 from .constants import _SRCCOPY, _SUPPORTED_ROP3
 from .playback import _Playback
+from .record_types import EmfRecord
 
 
 def _append_image_command(
@@ -51,14 +52,12 @@ def _append_image_command(
     )
     playback.append_command(
         DrawImageCommand(
-            dib_header=dib_header,
-            bits=bits,
+            image=DibPayload(dib_header, bits, use_source_alpha=use_source_alpha),
             destination=corners,
             source=source,
             rop=rop,
             stretch_mode=playback.state.stretch_mode,
             constant_alpha=max(0, min(constant_alpha, 255)),
-            use_source_alpha=use_source_alpha,
             clip=playback.state.clip,
         )
     )
@@ -66,15 +65,15 @@ def _append_image_command(
 
 def _handle_emf_bitmap(record_type: int, record: BoundedReader, playback: _Playback) -> None:
     """解析常见 EMF DIB、BitBlt、StretchBlt 与 AlphaBlend 记录。"""
-    if record_type in {76, 77}:
+    if record_type in {EmfRecord.BITBLT, EmfRecord.STRETCHBLT}:
         destination = Rect(
             float(record.i32(24)),
             float(record.i32(28)),
             float(record.i32(24) + record.i32(32)),
             float(record.i32(28) + record.i32(36)),
         )
-        source_width = record.i32(100) if record_type == 77 and len(record) >= 108 else record.i32(32)
-        source_height = record.i32(104) if record_type == 77 and len(record) >= 108 else record.i32(36)
+        source_width = record.i32(100) if record_type == EmfRecord.STRETCHBLT and len(record) >= 108 else record.i32(32)
+        source_height = record.i32(104) if record_type == EmfRecord.STRETCHBLT and len(record) >= 108 else record.i32(36)
         source = Rect(
             float(record.i32(44)),
             float(record.i32(48)),
@@ -93,7 +92,7 @@ def _handle_emf_bitmap(record_type: int, record: BoundedReader, playback: _Playb
             rop=record.u32(40),
         )
         return
-    if record_type == 81:
+    if record_type == EmfRecord.STRETCHDIBITS:
         destination = Rect(
             float(record.i32(24)),
             float(record.i32(28)),
@@ -118,7 +117,7 @@ def _handle_emf_bitmap(record_type: int, record: BoundedReader, playback: _Playb
             rop=record.u32(68),
         )
         return
-    if record_type == 80:
+    if record_type == EmfRecord.SETDIBITSTODEVICE:
         width, height = record.i32(40), record.i32(44)
         destination = Rect(
             float(record.i32(24)),
@@ -199,8 +198,7 @@ def _handle_wmf_stretchdib(payload: BoundedReader, playback: _Playback) -> None:
     )
     playback.append_command(
         DrawImageCommand(
-            dib_header=header,
-            bits=bits,
+            image=DibPayload(header, bits, use_source_alpha=False),
             destination=corners,
             source=Rect(
                 float(source_x),

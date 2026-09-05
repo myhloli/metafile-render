@@ -292,7 +292,7 @@ def _split_cubic(
     control1: Point,
     control2: Point,
     endpoint: Point,
-) -> tuple[tuple[Point, ...], tuple[Point, ...]]:
+) -> tuple[tuple[Point, Point, Point, Point], tuple[Point, Point, Point, Point]]:
     """按 de Casteljau 中点算法把三次贝塞尔曲线二分。"""
     first = ((start[0] + control1[0]) / 2.0, (start[1] + control1[1]) / 2.0)
     second = ((control1[0] + control2[0]) / 2.0, (control1[1] + control2[1]) / 2.0)

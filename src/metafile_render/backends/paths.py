@@ -14,6 +14,7 @@ from ..geometry import FlattenBudget, flatten_path, transform_path
 from ..models import MetafileMalformedError, MetafileResourceLimitError
 from ..primitives import Brush, ClipStack, GraphicsPath, Matrix, Pen, Point
 from .constants import _CLIPPER_COORD_LIMIT, _CLIPPER_SCALE
+from .session import RenderSession
 
 
 def _clipper_paths(subpaths: list[tuple[list[Point], bool]]) -> list[list[tuple[int, int]]]:
@@ -58,6 +59,13 @@ def _path_mask(
     """按 GDI winding/alternate 规则把复合路径转换为 L 模式 mask。"""
     transformed = transform_path(path, matrix)
     subpaths = flatten_path(transformed, budget=budget)
+    return _subpath_mask(subpaths, size, fill_rule, budget)
+
+
+def _subpath_mask(
+    subpaths: list[tuple[list[Point], bool]], size: tuple[int, int], fill_rule: str, budget: FlattenBudget | None
+) -> Image.Image:
+    """将已展平轮廓按填充规则转换成 mask，供填充与裁剪复用。"""
     mask = Image.new("L", size, 0)
     paths = _clipper_paths(subpaths)
     if not paths:
@@ -78,10 +86,15 @@ def _clip_mask(
     matrix: Matrix,
     size: tuple[int, int],
     budget: FlattenBudget | None = None,
+    session: RenderSession | None = None,
 ) -> Image.Image | None:
     """按 GDI combine mode 顺序合成最终裁剪 mask。"""
     if not clip:
         return None
+    key = ("clip", clip, matrix, size)
+    cached = session.cache.get(key) if session is not None else None
+    if cached is not None:
+        return cached
     current = Image.new("L", size, 255)
     for operation in clip:
         incoming = _path_mask(operation.path, matrix, size, operation.fill_rule, budget)
@@ -95,12 +108,20 @@ def _clip_mask(
             current = ImageChops.logical_xor(current.convert("1"), incoming.convert("1")).convert("L")
         else:
             current = ImageChops.subtract(current, incoming)
+    if session is not None:
+        session.cache.put(key, current)
     return current
 
 
-def _apply_clip(layer: Image.Image, clip: ClipStack, matrix: Matrix, budget: FlattenBudget | None = None) -> None:
+def _apply_clip(
+    layer: Image.Image,
+    clip: ClipStack,
+    matrix: Matrix,
+    budget: FlattenBudget | None = None,
+    session: RenderSession | None = None,
+) -> None:
     """把命令级裁剪 mask 乘入 RGBA layer 的 alpha 通道。"""
-    mask = _clip_mask(clip, matrix, layer.size, budget)
+    mask = _clip_mask(clip, matrix, layer.size, budget, session)
     if mask is None:
         return
     alpha = layer.getchannel("A")
@@ -273,13 +294,14 @@ def _render_path_command(
     size: tuple[int, int],
     raster_scale: int,
     budget: FlattenBudget,
+    session: RenderSession | None = None,
 ) -> Image.Image:
     """把单条路径命令绘制到独立透明 RGBA layer。"""
     layer = Image.new("RGBA", size, (0, 0, 0, 0))
     transformed = transform_path(command.path, matrix)
     subpaths = flatten_path(transformed, budget=budget)
     if command.fill and command.brush.kind != "null":
-        fill_mask = _path_mask(command.path, matrix, size, command.fill_rule, budget)
+        fill_mask = _subpath_mask(subpaths, size, command.fill_rule, budget)
         if command.brush.kind == "hatch":
             fill_layer = _hatch_layer(size, command.brush)
             fill_layer.putalpha(ImageChops.multiply(fill_layer.getchannel("A"), fill_mask))
@@ -304,7 +326,7 @@ def _render_path_command(
         stroke_layer = Image.new("RGBA", size, command.pen.color.rgba())
         stroke_layer.putalpha(ImageChops.multiply(stroke_layer.getchannel("A"), stroke_mask))
         layer.alpha_composite(stroke_layer)
-    _apply_clip(layer, command.clip, matrix, budget)
+    _apply_clip(layer, command.clip, matrix, budget, session)
     return layer
 
 

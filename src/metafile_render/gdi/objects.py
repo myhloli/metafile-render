@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from ..binary import BoundedReader
 from ..models import MetafileMalformedError
 from ..primitives import Brush, Font, Pen
@@ -25,8 +27,8 @@ def _pen_dash_pattern(style: int, width: float) -> tuple[float, ...]:
 def _make_pen(style: int, width: float, color_value: int, *, extended: bool = False) -> Pen:
     """从 LOGPEN/EXTLOGPEN 字段构造统一画笔。"""
     basic_style = style & 0xF
-    cap = "square" if style & 0x100 else "flat" if style & 0x200 else "round"
-    join = "bevel" if style & 0x1000 else "miter" if style & 0x2000 else "round"
+    cap: Literal["round", "square", "flat"] = "square" if style & 0x100 else "flat" if style & 0x200 else "round"
+    join: Literal["round", "bevel", "miter"] = "bevel" if style & 0x1000 else "miter" if style & 0x2000 else "round"
     geometric = bool(style & 0x10000) if extended else abs(width) > 1.0
     normalized_width = max(abs(width), 1.0)
     return Pen(

@@ -8,22 +8,19 @@ from math import ceil, hypot
 
 from PIL import Image, ImageDraw, ImageFont
 
-from ..commands import DrawTextCommand
-from ..font import load_font
+from ..commands import DrawTextCommand, TextAlignment
 from ..geometry import FlattenBudget
 from ..primitives import Matrix, Point
-from .constants import _TA_BASELINE, _TA_BOTTOM, _TA_CENTER, _TA_RIGHT
 from .mapping import _mapped_rect
 from .paths import _apply_clip
+from .session import RenderSession
 
 
-def _text_anchor(text_align: int) -> str:
-    """把 GDI TextAlignmentMode 转换为 Pillow anchor。"""
-    horizontal = "r" if text_align & _TA_CENTER == _TA_CENTER else "r" if text_align & _TA_RIGHT else "l"
-    if text_align & _TA_CENTER == _TA_CENTER:
-        horizontal = "m"
-    vertical = "s" if text_align & _TA_BASELINE == _TA_BASELINE else "d" if text_align & _TA_BOTTOM else "a"
-    return horizontal + vertical
+def _text_anchor(alignment: TextAlignment) -> str:
+    """将统一文字对齐映射为 Pillow anchor。"""
+    return {"left": "l", "center": "m", "right": "r"}[alignment.horizontal] + {"top": "a", "bottom": "d", "baseline": "s"}[
+        alignment.vertical
+    ]
 
 
 def _aligned_text_positions(
@@ -34,7 +31,7 @@ def _aligned_text_positions(
     """把显式字符位置按整串 CENTER/RIGHT alignment 平移一次。"""
     if not command.positions or command.advance_end is None:
         return positions, False
-    factor = 0.5 if command.text_align & _TA_CENTER == _TA_CENTER else 1.0 if command.text_align & _TA_RIGHT else 0.0
+    factor = {"left": 0.0, "center": 0.5, "right": 1.0}[command.alignment.horizontal]
     mapped_origin = matrix.transform_point(command.origin)
     mapped_end = matrix.transform_point(command.advance_end)
     offset_x = (mapped_end[0] - mapped_origin[0]) * factor
@@ -57,8 +54,8 @@ def _draw_rotated_text(
     """在指定 anchor 绘制可旋转文字，并返回未旋转文字尺寸。"""
     draw = ImageDraw.Draw(layer)
     bbox = draw.textbbox((0, 0), text, font=font, anchor=anchor)
-    width = max(1, bbox[2] - bbox[0])
-    height = max(1, bbox[3] - bbox[1])
+    width = max(1, ceil(bbox[2] - bbox[0]))
+    height = max(1, ceil(bbox[3] - bbox[1]))
     line_width = max(1, round(height / 14.0))
 
     def draw_decorations(target_draw: ImageDraw.ImageDraw, reference: Point) -> None:
@@ -90,18 +87,36 @@ def _draw_rotated_text(
     return width, height
 
 
+def _text_background_bounds(
+    command: DrawTextCommand,
+    matrix: Matrix,
+    font: ImageFont.FreeTypeFont | ImageFont.ImageFont,
+    positions: list[Point],
+    texts: tuple[str, ...],
+    anchor: str,
+) -> tuple[float, float, float, float]:
+    """由两种后端共用实际字体度量和整串对齐后的文字背景范围。"""
+    if command.bounds is not None:
+        rect = _mapped_rect(command.bounds, matrix).normalized()
+        return rect.left, rect.top, rect.right, rect.bottom
+    draw = ImageDraw.Draw(Image.new("L", (1, 1)))
+    bounds = [draw.textbbox(position, text, font=font, anchor=anchor) for position, text in zip(positions, texts)]
+    return min(b[0] for b in bounds), min(b[1] for b in bounds), max(b[2] for b in bounds), max(b[3] for b in bounds)
+
+
 def _render_text_command(
     command: DrawTextCommand,
     matrix: Matrix,
     size: tuple[int, int],
     budget: FlattenBudget,
+    session: RenderSession | None = None,
 ) -> Image.Image:
     """把单条文字命令绘制到独立透明 RGBA layer。"""
     layer = Image.new("RGBA", size, (0, 0, 0, 0))
     scale_y = max(abs(matrix.d), 1e-9)
     font_size = max(1, round(command.font_height * scale_y))
-    font = load_font(command.font.face_name, font_size, command.font.weight, command.font.italic, command.font.charset)
-    anchor = _text_anchor(command.text_align)
+    font = (session or RenderSession()).font(command, font_size).font
+    anchor = _text_anchor(command.alignment)
     positions = (
         [matrix.transform_point(position) for position in command.positions]
         if command.positions
@@ -113,17 +128,7 @@ def _render_text_command(
     texts = tuple(command.text) if command.positions else (command.text,)
     if command.opaque:
         draw = ImageDraw.Draw(layer)
-        if command.bounds is not None:
-            rect = _mapped_rect(command.bounds, matrix).normalized()
-            background_bounds = rect.left, rect.top, rect.right, rect.bottom
-        else:
-            text_bounds = [draw.textbbox(position, text, font=font, anchor=anchor) for position, text in zip(positions, texts)]
-            background_bounds = (
-                min(bounds[0] for bounds in text_bounds),
-                min(bounds[1] for bounds in text_bounds),
-                max(bounds[2] for bounds in text_bounds),
-                max(bounds[3] for bounds in text_bounds),
-            )
+        background_bounds = _text_background_bounds(command, matrix, font, positions, texts, anchor)
         draw.rectangle(background_bounds, fill=command.background_color.rgba())
     if command.positions:
         for position, character in zip(positions, command.text):
@@ -151,7 +156,7 @@ def _render_text_command(
             underline=command.font.underline,
             strikeout=command.font.strikeout,
         )
-    _apply_clip(layer, command.clip, matrix, budget)
+    _apply_clip(layer, command.clip, matrix, budget, session)
     return layer
 
 

@@ -7,7 +7,7 @@ from __future__ import annotations
 from math import atan2, cos, degrees, radians, sin
 
 from ..binary import BoundedReader
-from ..commands import DrawTextCommand
+from ..commands import DrawTextCommand, TextAlignment
 from ..font import measure_text_advance
 from ..geometry import rectangle_path, vector_length
 from ..limits import MAX_POINTS_PER_RECORD
@@ -16,6 +16,7 @@ from ..primitives import ClipOperation, Point, Rect
 from .constants import _ETO_CLIPPED, _ETO_GLYPH_INDEX, _ETO_OPAQUE, _ETO_PDY, _TA_UPDATECP
 from .objects import _decode_ansi_text
 from .playback import _Playback
+from .record_types import EmfRecord, WmfRecord
 from .scalars import _parse_rect_i16, _parse_rect_i32
 
 
@@ -85,13 +86,13 @@ def _emit_text(
             font=font,
             font_height=max(mapped_height, 1.0),
             rotation=rotation,
-            text_align=playback.state.text_align,
             color=playback.state.text_color,
             background_color=playback.state.background_color,
             opaque=bool(options & _ETO_OPAQUE) or playback.state.background_mode == 2,
             bounds=mapped_bounds,
             clip=clip,
             advance_end=advance_end,
+            alignment=TextAlignment.from_gdi(playback.state.text_align),
         )
     )
 
@@ -108,10 +109,12 @@ def _handle_emf_text(record_type: int, record: BoundedReader, playback: _Playbac
     options = record.u32(52)
     bounds = _parse_rect_i32(record, 56)
     dx_offset = record.u32(72)
-    char_bytes = 2 if record_type == 84 else 1
+    char_bytes = 2 if record_type == EmfRecord.EXTTEXTOUTW else 1
     raw = record.bytes(string_offset, character_count * char_bytes)
     text = (
-        raw.decode("utf-16le", errors="replace") if record_type == 84 else _decode_ansi_text(raw, playback.state.font.charset)
+        raw.decode("utf-16le", errors="replace")
+        if record_type == EmfRecord.EXTTEXTOUTW
+        else _decode_ansi_text(raw, playback.state.font.charset)
     )
     advances: list[Point] | None = None
     if dx_offset:
@@ -137,7 +140,7 @@ def _handle_emf_text(record_type: int, record: BoundedReader, playback: _Playbac
 
 def _handle_wmf_text(function: int, payload: BoundedReader, playback: _Playback) -> None:
     """解析 WMF TextOut/ExtTextOut 字符串、矩形和 advance。"""
-    if function == 0x0521:
+    if function == WmfRecord.TEXTOUT:
         count = payload.u16(0)
         if count > payload.remaining(2):
             raise MetafileMalformedError("WMF TextOut string exceeds record boundary")

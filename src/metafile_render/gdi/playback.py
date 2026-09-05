@@ -6,24 +6,21 @@ from __future__ import annotations
 
 from dataclasses import replace
 from math import isfinite
+from typing import Literal
 
 from ..commands import ClearCommand, DrawCommand, DrawPathCommand, DrawTextCommand, MetafileDocument
-from ..context import _DiagnosticSink
+from ..context import DiagnosticSink, ReplayContext
 from ..geometry import PathBuilder, path_bounds, transform_path, union_rectangles, vector_length
 from ..headers import _HeaderInfo
 from ..limits import (
     MAX_CLIP_OPERATIONS,
-    MAX_COMMANDS,
     MAX_OBJECTS,
-    MAX_POINTS_PER_RECORD,
     MAX_STATE_DEPTH,
-    MAX_TOTAL_CLIP_OPERATIONS,
-    MAX_TOTAL_POINTS,
 )
 from ..models import MetafileResourceLimitError, MetafileUnsupportedError
 from ..primitives import BLACK, WHITE, Brush, ClipOperation, Color, Font, GraphicsPath, Matrix, Pen, Point, Rect
 from ..sizing import _bounded_canvas_size
-from .constants import _RGN_AND, _RGN_COPY, _RGN_DIFF, _RGN_OR, _RGN_XOR, _TA_CENTER, _TA_RIGHT
+from .constants import _RGN_AND, _RGN_COPY, _RGN_DIFF, _RGN_OR, _RGN_XOR
 from .shapes import _path_from_device_points
 from .state import GdiState
 
@@ -31,59 +28,48 @@ from .state import GdiState
 class _Playback:
     """把 WMF/EMF records 回放为统一绘图命令。"""
 
-    def __init__(self, header: _HeaderInfo, diagnostics: _DiagnosticSink) -> None:
+    def __init__(self, header: _HeaderInfo, context: ReplayContext | None = None) -> None:
         """初始化 GDI 状态、对象表、路径与资源计数。"""
+        self.context = context if context is not None else ReplayContext()
         self.header = header
-        self.diagnostics = diagnostics
         self.state = GdiState(device_pixels_per_mm=header.device_pixels_per_mm)
         self.state_stack: list[GdiState] = []
         self.emf_objects: dict[int, Pen | Brush | Font] = {}
         self.wmf_objects: list[Pen | Brush | Font | None] = [None] * min(header.wmf_object_count, MAX_OBJECTS)
-        self.commands: list[DrawCommand] = []
         self.path_builder = PathBuilder()
         self.path_active = False
         self.path_ready = False
-        self.partial = False
-        self.total_points = 0
-        self.total_clip_operations = 0
-        self.record_type: int | None = None
-        self.record_index: int | None = None
-        self.record_offset: int | None = None
+
+    @property
+    def commands(self) -> list[DrawCommand]:
+        """读取共享上下文中的已完成命令。"""
+        return self.context.commands
+
+    @property
+    def diagnostics(self) -> DiagnosticSink:
+        """读取贯穿渲染阶段的诊断收集器。"""
+        return self.context.diagnostics
+
+    @property
+    def partial(self) -> bool:
+        """读取当前文档的功能降级状态。"""
+        return self.context.partial
 
     def set_record_context(self, record_type: int, record_index: int, offset: int) -> None:
-        """更新后续诊断所使用的当前记录定位信息。"""
-        self.record_type = record_type
-        self.record_index = record_index
-        self.record_offset = offset
+        """将当前 GDI 记录位置交给共享上下文。"""
+        self.context.set_record_context(record_type, record_index, offset)
 
     def warn(self, code: str, message: str, *, partial: bool = True) -> None:
-        """为当前记录追加警告，并按需标记输出不完整。"""
-        self.partial = self.partial or partial
-        self.diagnostics.add(
-            code,
-            "warning",
-            message,
-            record_type=self.record_type,
-            record_index=self.record_index,
-            offset=self.record_offset,
-        )
+        """报告当前 GDI 操作的降级信息。"""
+        self.context.warn(code, message, partial=partial)
 
     def charge_points(self, count: int) -> None:
-        """累计点数并执行单记录与全文件预算。"""
-        if count < 0 or count > MAX_POINTS_PER_RECORD:
-            raise MetafileResourceLimitError(f"metafile record exceeds max_points_per_record={MAX_POINTS_PER_RECORD}")
-        self.total_points += count
-        if self.total_points > MAX_TOTAL_POINTS:
-            raise MetafileResourceLimitError(f"metafile exceeds max_total_points={MAX_TOTAL_POINTS}")
+        """在生成几何之前累计输入点数。"""
+        self.context.charge_points(count)
 
     def append_command(self, command: DrawCommand) -> None:
-        """在命令预算内追加一条统一绘图命令。"""
-        if len(self.commands) >= MAX_COMMANDS:
-            raise MetafileResourceLimitError(f"metafile exceeds max_commands={MAX_COMMANDS}")
-        self.total_clip_operations += len(command.clip)
-        if self.total_clip_operations > MAX_TOTAL_CLIP_OPERATIONS:
-            raise MetafileResourceLimitError(f"metafile exceeds max_total_clip_operations={MAX_TOTAL_CLIP_OPERATIONS}")
-        self.commands.append(command)
+        """把图元和来源位置交给共享命令容器。"""
+        self.context.append_command(command)
 
     def copy_state(self) -> GdiState:
         """复制当前可由 SaveDC/RestoreDC 恢复的 GDI 状态。"""
@@ -420,15 +406,16 @@ class _Playback:
         )
 
 
-def _clip_mode_name(mode: int) -> str | None:
+def _clip_mode_name(mode: int) -> Literal["and", "or", "xor", "diff", "copy"] | None:
     """把 GDI RegionMode 数值转换为内部裁剪操作名称。"""
-    return {
+    modes: dict[int, Literal["and", "or", "xor", "diff", "copy"]] = {
         _RGN_AND: "and",
         _RGN_OR: "or",
         _RGN_XOR: "xor",
         _RGN_DIFF: "diff",
         _RGN_COPY: "copy",
-    }.get(mode)
+    }
+    return modes.get(mode)
 
 
 def _stock_object(index: int) -> Pen | Brush | Font | None:
@@ -458,15 +445,6 @@ def _stock_object(index: int) -> Pen | Brush | Font | None:
     return None
 
 
-def _horizontal_text_align_factor(text_align: int) -> float:
-    """返回 LEFT/CENTER/RIGHT 文本 bounds 相对 origin 的左移比例。"""
-    if text_align & _TA_CENTER == _TA_CENTER:
-        return 0.5
-    if text_align & _TA_RIGHT:
-        return 1.0
-    return 0.0
-
-
 def _commands_bounds(commands: list[DrawCommand]) -> Rect | None:
     """计算全部绘图命令的保守可见包围盒。"""
     rectangles: list[Rect | None] = []
@@ -480,7 +458,7 @@ def _commands_bounds(commands: list[DrawCommand]) -> Rect | None:
                 estimated_width = max(command.font_height * 0.6 * len(command.text), command.font_height)
                 if command.advance_end is not None:
                     estimated_width = max(estimated_width, abs(command.advance_end[0] - command.origin[0]))
-                align_factor = _horizontal_text_align_factor(command.text_align)
+                align_factor = {"left": 0.0, "center": 0.5, "right": 1.0}[command.alignment.horizontal]
                 left = command.origin[0] - estimated_width * align_factor
                 rectangles.append(
                     Rect(
@@ -499,4 +477,4 @@ def _commands_bounds(commands: list[DrawCommand]) -> Rect | None:
     return union_rectangles(rectangles)
 
 
-__all__ = ["_Playback", "_clip_mode_name", "_stock_object", "_horizontal_text_align_factor", "_commands_bounds"]
+__all__ = ["_Playback", "_clip_mode_name", "_stock_object", "_commands_bounds"]

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "metafile-render"
-version = "0.2.0"
+version = "0.3.0"
 description = "Render WMF and EMF files to SVG, PNG, JPEG, and WebP"
 readme = "README.md"
 license = "MIT"
@@ -31,7 +31,7 @@ dependencies = [
 
 [project.optional-dependencies]
 test = ["pytest>=8", "pypptx-with-oxml>=1.0.3,<2"]
-dev = ["metafile-render[test]", "ruff", "build", "twine"]
+dev = ["metafile-render[test]", "ruff", "build", "twine", "mypy"]
 
 [project.urls]
 Repository = "https://github.com/myhloli/metafile-render"
@@ -57,3 +57,12 @@ target-version = "py310"
 [tool.ruff.lint]
 select = ["C", "E", "F", "W", "ANN"]
 ignore = ["C901", "ANN204", "ANN401"]
+
+[tool.mypy]
+python_version = "3.10"
+check_untyped_defs = true
+warn_unused_ignores = true
+
+[[tool.mypy.overrides]]
+module = ["pyclipper", "pyclipper.*"]
+ignore_missing_imports = true

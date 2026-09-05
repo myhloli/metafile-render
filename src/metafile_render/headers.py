@@ -8,11 +8,13 @@ import struct
 from dataclasses import dataclass
 
 from .binary import BoundedReader
+from .emfplus.record_types import PlusRecordType
 from .gdi.constants import _EMF_SIGNATURE, _PLACEABLE_WMF_KEY
 from .gdi.scalars import _parse_rect_i32
 from .limits import MAX_OBJECTS, MAX_RECORDS
 from .models import EmfPlusMode, MetafileMalformedError, MetafileResourceLimitError, MetafileSourceFormat
 from .primitives import Point, Rect
+from .records import iter_records
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,44 +51,32 @@ def _scan_emfplus_mode(data: bytes, start: int, end: int) -> EmfPlusMode:
     """严格扫描子记录边界及真实 Header，避免坏 EMF+ 被误判为普通 EMF。"""
     from .emfplus.binary import Cursor, comment_records
 
-    reader = BoundedReader(data)
-    offset = start
     mode: EmfPlusMode = "none"
-    count = 0
     plus_count = 0
     eof = False
-    while offset < end:
-        record = reader.subreader(offset, 8)
-        record_type, size = record.u32(0), record.u32(4)
-        count += 1
-        if count > MAX_RECORDS:
-            raise MetafileResourceLimitError("EMF exceeds record budget")
-        if size < 8 or size % 4 or size > end - offset:
-            raise MetafileMalformedError("invalid EMF record while scanning comments")
-        if record_type == 70:
-            for item in comment_records(reader.subreader(offset, size)):
-                plus_count += 1
-                if plus_count > MAX_RECORDS:
-                    raise MetafileResourceLimitError("EMF+ exceeds record budget")
-                if eof or mode == "none" and item.kind != 0x4001:
-                    raise MetafileMalformedError("EMF+ record outside Header/EOF boundaries")
-                if item.kind == 0x4001:
-                    if mode != "none" or len(item.payload) != 16:
-                        raise MetafileMalformedError("invalid or duplicate EMF+ Header")
-                    cursor = Cursor(item.payload)
-                    cursor.version()
-                    cursor.u32()
-                    dx, dy = cursor.u32(), cursor.u32()
-                    if not dx or not dy or max(dx, dy) > 100000:
-                        raise MetafileMalformedError("invalid EMF+ logical DPI")
-                    mode = "dual" if item.flags & 1 else "only"
-                elif item.kind == 0x4002:
-                    if len(item.payload):
-                        raise MetafileMalformedError("EMF+ EndOfFile must be empty")
-                    eof = True
-        offset += size
-        if record_type == 14:
-            break
+    for record in iter_records(data, start, end, "emf"):
+        if record.kind != 70:
+            continue
+        for item in comment_records(record.data):
+            plus_count += 1
+            if plus_count > MAX_RECORDS:
+                raise MetafileResourceLimitError("EMF+ exceeds record budget")
+            if eof or mode == "none" and item.kind != PlusRecordType.HEADER:
+                raise MetafileMalformedError("EMF+ record outside Header/EOF boundaries")
+            if item.kind == PlusRecordType.HEADER:
+                if mode != "none" or len(item.payload) != 16:
+                    raise MetafileMalformedError("invalid or duplicate EMF+ Header")
+                cursor = Cursor(item.payload)
+                cursor.version()
+                cursor.u32()
+                dx, dy = cursor.u32(), cursor.u32()
+                if not dx or not dy or max(dx, dy) > 100000:
+                    raise MetafileMalformedError("invalid EMF+ logical DPI")
+                mode = "dual" if item.flags & 1 else "only"
+            elif item.kind == PlusRecordType.END_OF_FILE:
+                if len(item.payload):
+                    raise MetafileMalformedError("EMF+ EndOfFile must be empty")
+                eof = True
     if mode != "none" and not eof:
         raise MetafileMalformedError("EMF+ stream has no EndOfFile")
     return mode

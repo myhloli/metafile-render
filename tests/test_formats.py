@@ -25,12 +25,15 @@ def test_webp_preserves_alpha_and_uses_lossy_quality_90(monkeypatch: pytest.Monk
         original_save(image, fp, format=format, **params)
 
     monkeypatch.setattr(Image.Image, "save", save)
-    result = render_metafile(payload, output_format="webp")
+    result = render_metafile(payload, output_format="webp", dpi=144, backend="replay")
     assert result.output_format == "webp"
     assert result.media_type == "image/webp"
     assert result.data[:4] == b"RIFF" and result.data[8:12] == b"WEBP"
     assert saved_options == {"lossless": False, "quality": 90, "method": 4}
-    with Image.open(BytesIO(result.data)) as webp, Image.open(BytesIO(render_metafile(payload).data)) as png:
+    with (
+        Image.open(BytesIO(result.data)) as webp,
+        Image.open(BytesIO(render_metafile(payload, dpi=144, backend="replay").data)) as png,
+    ):
         assert webp.size == png.size == (result.width, result.height)
         assert webp.convert("RGBA").getchannel("A").tobytes() == png.convert("RGBA").getchannel("A").tobytes()
         assert webp.convert("RGBA").getchannel("A").getextrema() == (0, 255)
@@ -43,7 +46,7 @@ def test_webp_missing_encoder_is_explicit(monkeypatch: pytest.MonkeyPatch) -> No
     rasterize = Mock(side_effect=AssertionError("must not rasterize"))
     monkeypatch.setattr(renderer, "render_pillow", rasterize)
     with pytest.raises(MetafileUnsupportedError, match="WebP encoder is unavailable"):
-        render_metafile(basic_wmf(), output_format="webp")
+        render_metafile(basic_wmf(), output_format="webp", dpi=144, backend="replay")
     rasterize.assert_not_called()
 
 
@@ -53,7 +56,7 @@ def test_svg_budget_stops_before_expensive_image_encoding(monkeypatch: pytest.Mo
     monkeypatch.setattr(svg, "MAX_GENERATED_SVG_BYTES", 1)
     monkeypatch.setattr(svg, "_svg_image_element", image_element)
     with pytest.raises(MetafileResourceLimitError, match="max_generated_svg_bytes"):
-        render_metafile(build_emf([emf_stretch_dib()]), output_format="svg")
+        render_metafile(build_emf([emf_stretch_dib()]), output_format="svg", dpi=144, backend="replay")
     image_element.assert_not_called()
 
 
@@ -61,11 +64,11 @@ def test_svg_budget_stops_before_expensive_image_encoding(monkeypatch: pytest.Mo
 def test_api_rejects_unknown_format(output_format: str) -> None:
     """公开 API 只接受规范输出类型，别名由 CLI 扩展名层处理。"""
     with pytest.raises(ValueError, match="unsupported metafile output format"):
-        render_metafile(basic_wmf(), output_format=output_format)  # type: ignore[arg-type]
+        render_metafile(basic_wmf(), output_format=output_format, dpi=144, backend="replay")  # type: ignore[arg-type]
 
 
 @pytest.mark.parametrize("dpi", [0, 1201, 1.5])
 def test_api_rejects_invalid_dpi(dpi: int | float) -> None:
     """无效分辨率在进入回放前被拒绝。"""
     with pytest.raises(ValueError, match="dpi must"):
-        render_metafile(basic_wmf(), dpi=dpi)  # type: ignore[arg-type]
+        render_metafile(basic_wmf(), dpi=dpi, backend="replay")  # type: ignore[arg-type]

@@ -6,14 +6,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 from math import atan2, cos, degrees, hypot, radians, sin
-from typing import Protocol
 
 from ..binary import BoundedReader
-from ..commands import ClearCommand, DrawCommand, DrawImageCommand, DrawPathCommand, DrawTextCommand
-from ..font import load_font, measure_text_advance
-from ..gdi.state import GdiState
+from ..commands import ClearCommand, DrawImageCommand, DrawPathCommand, DrawTextCommand, EncodedImage, TextAlignment
+from ..context import ReplayContext
+from ..font import font_metrics, load_font, measure_text_advance
+from ..gdi.bridge import GdiBridge
 from ..geometry import PathBuilder, arc_path, ellipse_path, rectangle_path, transform_path
-from ..limits import MAX_CLIP_OPERATIONS, MAX_EMBEDDED_BITMAP_BYTES, MAX_METAFILE_BYTES, MAX_RECORDS, MAX_STATE_DEPTH
+from ..limits import MAX_CLIP_OPERATIONS, MAX_RECORDS, MAX_STATE_DEPTH
 from ..models import MetafileMalformedError, MetafileResourceLimitError, MetafileUnsupportedError
 from ..primitives import Brush, ClipOperation, ClipStack, GraphicsPath, Matrix, Pen, Point, Rect
 from .binary import Cursor, PlusRecord, argb, comment_records, finite
@@ -22,36 +22,12 @@ from .objects import (
     PlusBrush,
     PlusFont,
     PlusImage,
-    PlusObject,
     PlusPen,
     StringFormat,
     UnsupportedObject,
-    parse_object,
 )
-
-
-class PlaybackHost(Protocol):
-    """共享编排层提供的显式接口，不依赖 GDI 私有解析实现。"""
-
-    commands: list[DrawCommand]
-    state: GdiState
-    state_stack: list[GdiState]
-
-    def warn(self, code: str, message: str, *, partial: bool = True) -> None:
-        """追加当前记录的诊断。"""
-        ...
-
-    def set_record_context(self, record_type: int, record_index: int, offset: int) -> None:
-        """更新诊断位置。"""
-        ...
-
-    def append_command(self, command: DrawCommand) -> None:
-        """追加并检查绘图预算。"""
-        ...
-
-    def charge_points(self, count: int) -> None:
-        """累计几何和文字的点数预算。"""
-        ...
+from .record_types import PlusRecordType
+from .table import ObjectTable
 
 
 @dataclass(slots=True)
@@ -65,37 +41,23 @@ class PlusState:
     clip: ClipStack = ()
 
 
-@dataclass(slots=True)
-class ContinuedObject:
-    """累计单个跨记录对象，完成前不暴露半成品。"""
-
-    slot: int
-    kind: int
-    size: int
-    data: bytearray = field(default_factory=bytearray)
-
-
 class EmfPlusPlayback:
     """管理 EMF+ 独立对象表、状态栈和 GetDC 回放窗口。"""
 
-    def __init__(self, host: PlaybackHost, bounds: Rect, dpi: Point) -> None:
+    def __init__(self, host: ReplayContext, bounds: Rect, dpi: Point, bridge: GdiBridge) -> None:
         """初始化首版支持范围内的回放状态与累计资源计数。"""
         self.host = host
+        self.bridge = bridge
+        self.object_table = ObjectTable(host)
         self.bounds = bounds
         self.dpi = dpi
         self.state = PlusState()
         self.stack: list[tuple[int, str, PlusState]] = []
-        self.objects: dict[int, PlusObject] = {}
-        self.continued: ContinuedObject | None = None
-        self.object_bytes = 0
-        self.decoded_bytes = 0
         self.record_count = 0
         self.saw_header = False
         self.saw_eof = False
         self.gdi_active = False
         self.halted = False
-        self.saved_gdi_state: GdiState | None = None
-        self.saved_gdi_stack: list[GdiState] = []
 
     def warn(self, code: str, message: str) -> None:
         """保留全部可定位的降级诊断。"""
@@ -131,69 +93,12 @@ class EmfPlusPlayback:
         x, y = (matrix or self.matrix()).transform_point(point)
         return finite(x), finite(y)
 
-    def get(self, slot: int, expected: type) -> PlusObject | None:
-        """验证引用类型，已声明的不支持对象只跳过对应绘制。"""
-        if slot not in range(64) or slot not in self.objects:
-            raise MetafileMalformedError(f"undefined EMF+ object: {slot}")
-        value = self.objects[slot]
-        if isinstance(value, UnsupportedObject):
-            self.warn("emfplus_object_skipped", f"drawing references unsupported object {slot}")
-            return None
-        if not isinstance(value, expected):
-            raise MetafileMalformedError(f"EMF+ object {slot} has unexpected type")
-        return value
-
     def brush(self, value: int, flags: int) -> PlusBrush:
         """将内联 ARGB 或画刷引用解析成统一纯色。"""
         if flags & 0x8000:
             return PlusBrush(argb(value))
-        result = self.get(value, PlusBrush)
+        result = self.object_table.get(value, PlusBrush)
         return result if isinstance(result, PlusBrush) else PlusBrush(None)
-
-    def object(self, flags: int, cursor: Cursor) -> None:
-        """重组对象分段并原子替换槽，限制所有对象的累计字节。"""
-        slot, kind, more = flags & 255, (flags >> 8) & 127, bool(flags & 0x8000)
-        if slot >= 64 or kind == 0:
-            raise MetafileMalformedError("invalid EMF+ object slot or type")
-        total = cursor.u32() if more else None
-        if total is not None and (total == 0 or total > MAX_METAFILE_BYTES):
-            raise MetafileResourceLimitError("EMF+ continued object exceeds byte budget")
-        chunk = cursor.take(cursor.reader.remaining(cursor.offset))
-        self.object_bytes += len(chunk)
-        if self.object_bytes > MAX_METAFILE_BYTES:
-            raise MetafileResourceLimitError("EMF+ cumulative objects exceed byte budget")
-        if self.continued is not None:
-            current = self.continued
-            if (slot, kind) != (current.slot, current.kind) or total is not None and total != current.size:
-                raise MetafileMalformedError("mismatched EMF+ continued object")
-        elif more:
-            current = ContinuedObject(slot, kind, total or 0)
-            self.continued = current
-            self.objects[slot] = UnsupportedObject(kind)
-        else:
-            current = None
-            self.objects[slot] = UnsupportedObject(kind)
-        if current is not None:
-            remaining = current.size - len(current.data)
-            if len(chunk) > remaining:
-                if more or len(chunk) - remaining > 3:
-                    raise MetafileMalformedError("EMF+ continued object exceeds declared length")
-                chunk = chunk[:remaining]
-            current.data.extend(chunk)
-            if more:
-                return
-            if len(current.data) != current.size:
-                raise MetafileMalformedError("incomplete EMF+ object data")
-            chunk = bytes(current.data)
-            self.continued = None
-        value = parse_object(kind, BoundedReader(chunk, base_offset=cursor.reader.base_offset), self.warn)
-        if isinstance(value, GraphicsPath):
-            self.host.charge_points(sum(len(segment.points) for segment in value.segments))
-        if isinstance(value, PlusImage):
-            self.decoded_bytes += value.width * value.height * 4 + len(value.png)
-            if self.decoded_bytes > MAX_EMBEDDED_BITMAP_BYTES:
-                raise MetafileResourceLimitError("EMF+ cumulative decoded images exceed byte budget")
-        self.objects[slot] = value
 
     def emit_path(
         self, path: GraphicsPath, *, brush: PlusBrush | None = None, pen: PlusPen | None = None, winding: bool = False
@@ -271,25 +176,22 @@ class EmfPlusPlayback:
         """逐一处理注释中的 EMF+ 记录，关闭上一段 GetDC 窗口。"""
         for item in comment_records(record):
             self.gdi_active = False
-            if self.saved_gdi_state is not None:
-                self.host.state = self.saved_gdi_state
-                self.saved_gdi_state = None
-                self.host.state_stack = self.saved_gdi_stack
+            self.bridge.leave()
             self.record_count += 1
             if self.record_count > MAX_RECORDS:
                 raise MetafileResourceLimitError("EMF+ records exceed record budget")
             self.host.set_record_context(item.kind, self.record_count, item.offset)
             if self.saw_eof:
                 raise MetafileMalformedError("EMF+ record follows EndOfFile")
-            if not self.saw_header and item.kind != 0x4001:
+            if not self.saw_header and item.kind != PlusRecordType.HEADER:
                 raise MetafileMalformedError("EMF+ Header must be the first record")
-            if self.continued is not None and item.kind != 0x4008:
+            if self.object_table.continued is not None and item.kind != PlusRecordType.OBJECT:
                 raise MetafileMalformedError("EMF+ object continuation interrupted")
             self.record(item)
 
     def finish(self) -> None:
         """验证真实 Header/EOF 与完整对象，并拒绝没有支持内容的 Only 文件。"""
-        if not self.saw_header or not self.saw_eof or self.continued is not None:
+        if not self.saw_header or not self.saw_eof or self.object_table.continued is not None:
             raise MetafileMalformedError("EMF+ stream is missing Header/EOF or has unfinished objects")
         if not self.host.commands:
             raise MetafileUnsupportedError("EMF+ Only contains no supported drawing operations")
@@ -298,7 +200,7 @@ class EmfPlusPlayback:
         """静态分派控制、状态与绘图记录，终止后仅验证结构边界。"""
         kind, flags = record.kind, record.flags
         cursor = Cursor(record.payload)
-        if kind == 0x4001:
+        if kind == PlusRecordType.HEADER:
             if self.saw_header:
                 raise MetafileMalformedError("duplicate EMF+ Header")
             cursor.version()
@@ -310,48 +212,45 @@ class EmfPlusPlayback:
             self.saw_header = True
             cursor.finish()
             return
-        if kind == 0x4002:
+        if kind == PlusRecordType.END_OF_FILE:
             cursor.finish()
             self.saw_eof = True
             return
         if self.halted:
             return
-        if kind == 0x4003:
+        if kind == PlusRecordType.COMMENT:
             return
-        if kind == 0x4004:
+        if kind == PlusRecordType.GETDC:
             cursor.finish()
-            self.saved_gdi_state = replace(self.host.state)
-            self.saved_gdi_stack = list(self.host.state_stack)
-            self.host.state_stack = []
-            self.host.state = replace(self.host.state, world_transform=self.matrix(), clip=self.state.clip)
+            self.bridge.enter(self.matrix(), self.state.clip)
             self.gdi_active = True
             return
-        if kind == 0x4008:
-            self.object(flags, cursor)
+        if kind == PlusRecordType.OBJECT:
+            self.object_table.define(flags, cursor)
             return
         if self.control(kind, flags, cursor):
             cursor.finish()
             return
-        if kind == 0x401C:
+        if kind == PlusRecordType.DRAW_STRING:
             self.draw_string(flags, cursor)
-        elif kind == 0x4036:
+        elif kind == PlusRecordType.DRAW_DRIVER_STRING:
             self.driver_string(flags, cursor)
-        elif kind in {0x401A, 0x401B}:
+        elif kind in {PlusRecordType.DRAW_IMAGE, PlusRecordType.DRAW_IMAGE_POINTS}:
             self.draw_image(kind, flags, cursor)
-        elif 0x4009 <= kind <= 0x4019 or kind in {0x4037}:
+        elif PlusRecordType.CLEAR <= kind <= PlusRecordType.DRAW_BEZIERS or kind in {PlusRecordType.STROKE_FILL_PATH}:
             self.draw_shape(kind, flags, cursor)
-        elif kind in {0x4038}:
+        elif kind in {PlusRecordType.SERIALIZABLE_OBJECT}:
             self.warn("emfplus_effect_ignored", "image effects are not implemented")
         else:
             self.stop(f"unknown EMF+ record {kind:#x} may change graphics state")
 
     def control(self, kind: int, flags: int, cursor: Cursor) -> bool:
         """处理状态栈、变换、裁剪以及可明确近似的质量设置。"""
-        if kind in {0x4025, 0x4028}:
-            self.save(cursor.u32(), "save" if kind == 0x4025 else "container")
-        elif kind in {0x4026, 0x4029}:
-            self.restore(cursor.u32(), "save" if kind == 0x4026 else "container")
-        elif kind == 0x4027:
+        if kind in {PlusRecordType.SAVE, PlusRecordType.BEGIN_CONTAINER_NO_PARAMS}:
+            self.save(cursor.u32(), "save" if kind == PlusRecordType.SAVE else "container")
+        elif kind in {PlusRecordType.RESTORE, PlusRecordType.END_CONTAINER}:
+            self.restore(cursor.u32(), "save" if kind == PlusRecordType.RESTORE else "container")
+        elif kind == PlusRecordType.BEGIN_CONTAINER:
             destination, source, index = cursor.rect(), cursor.rect(), cursor.u32()
             if not source.width or not source.height:
                 raise MetafileMalformedError("zero EMF+ container source extent")
@@ -365,52 +264,66 @@ class EmfPlusPlayback:
                 f=destination.top - source.top * destination.height / source.height,
             )
             self.state = PlusState(container=mapping.then(parent), unit=2, clip=self.state.clip)
-        elif kind == 0x402B:
+        elif kind == PlusRecordType.RESET_WORLD_TRANSFORM:
             self.state.world = Matrix()
-        elif kind in {0x402A, 0x402C, 0x402D, 0x402E, 0x402F}:
-            if kind in {0x402A, 0x402C}:
+        elif kind in {
+            PlusRecordType.SET_WORLD_TRANSFORM,
+            PlusRecordType.MULTIPLY_WORLD_TRANSFORM,
+            PlusRecordType.TRANSLATE_WORLD_TRANSFORM,
+            PlusRecordType.SCALE_WORLD_TRANSFORM,
+            PlusRecordType.ROTATE_WORLD_TRANSFORM,
+        }:
+            if kind in {PlusRecordType.SET_WORLD_TRANSFORM, PlusRecordType.MULTIPLY_WORLD_TRANSFORM}:
                 matrix = cursor.matrix()
-            elif kind == 0x402D:
+            elif kind == PlusRecordType.TRANSLATE_WORLD_TRANSFORM:
                 matrix = Matrix(e=cursor.f32(), f=cursor.f32())
-            elif kind == 0x402E:
+            elif kind == PlusRecordType.SCALE_WORLD_TRANSFORM:
                 matrix = Matrix(a=cursor.f32(), d=cursor.f32())
             else:
                 angle = radians(cursor.f32())
                 matrix = Matrix(a=cos(angle), b=sin(angle), c=-sin(angle), d=cos(angle))
-            if kind == 0x402A:
+            if kind == PlusRecordType.SET_WORLD_TRANSFORM:
                 self.state.world = matrix
             else:
                 self.state.world = self.state.world.then(matrix) if flags & 0x2000 else matrix.then(self.state.world)
             self.matrix()
-        elif kind == 0x4030:
+        elif kind == PlusRecordType.SET_PAGE_TRANSFORM:
             self.units(flags & 255)
             scale = cursor.f32()
             if scale <= 0:
                 raise MetafileMalformedError("EMF+ page scale must be positive")
             self.state.unit, self.state.page_scale = flags & 255, scale
-        elif kind == 0x4031:
+        elif kind == PlusRecordType.RESET_CLIP:
             self.state.clip = ()
-        elif kind == 0x4032:
+        elif kind == PlusRecordType.SET_CLIP_RECT:
             self.clip(rectangle_path(cursor.rect()), (flags >> 8) & 15)
-        elif kind == 0x4033:
-            path = self.get(flags & 255, GraphicsPath)
+        elif kind == PlusRecordType.SET_CLIP_PATH:
+            path = self.object_table.get(flags & 255, GraphicsPath)
             if isinstance(path, GraphicsPath):
                 self.clip(path, (flags >> 8) & 15)
             else:
                 self.stop("clip path object is unsupported")
-        elif kind == 0x4034:
-            self.get(flags & 255, UnsupportedObject)
+        elif kind == PlusRecordType.SET_CLIP_REGION:
+            self.object_table.get(flags & 255, UnsupportedObject)
             self.stop("complex region clipping is unsupported")
-        elif kind == 0x4035:
+        elif kind == PlusRecordType.OFFSET_CLIP:
             x, y = self.matrix().transform_vector(cursor.point())
             translation = Matrix(e=finite(x), f=finite(y))
             self.state.clip = tuple(replace(op, path=transform_path(op.path, translation)) for op in self.state.clip)
-        elif kind == 0x401D:
+        elif kind == PlusRecordType.SET_RENDERING_ORIGIN:
             x, y = cursor.i32(), cursor.i32()
             if x or y:
                 self.warn("emfplus_rendering_approximation", "rendering origin ignored")
-        elif 0x401E <= kind <= 0x4024:
-            defaults = {0x401E: {0, 1, 2}, 0x401F: {0}, 0x4020: {4}, 0x4021: {0, 1}, 0x4022: {0, 1}, 0x4023: {0}, 0x4024: {0}}
+        elif PlusRecordType.SET_ANTI_ALIAS_MODE <= kind <= PlusRecordType.SET_COMPOSITING_QUALITY:
+            defaults: dict[int, set[int]] = {
+                PlusRecordType.SET_ANTI_ALIAS_MODE: {0, 1, 2},
+                PlusRecordType.SET_TEXT_RENDERING_HINT: {0},
+                PlusRecordType.SET_TEXT_CONTRAST: {4},
+                PlusRecordType.SET_INTERPOLATION_MODE: {0, 1},
+                PlusRecordType.SET_PIXEL_OFFSET_MODE: {0, 1},
+                PlusRecordType.SET_COMPOSITING_MODE: {0},
+                PlusRecordType.SET_COMPOSITING_QUALITY: {0},
+            }
             value = flags & 255
             if value not in defaults[kind]:
                 self.warn("emfplus_rendering_approximation", f"rendering setting {kind:#x}={value} uses the standard renderer")
@@ -420,29 +333,41 @@ class EmfPlusPlayback:
 
     def draw_shape(self, kind: int, flags: int, cursor: Cursor) -> None:
         """解码基础图形并转换成共享路径，未实现的曲线或区域只跳过局部。"""
-        if kind == 0x4009:
+        if kind == PlusRecordType.CLEAR:
             self.host.append_command(ClearCommand(argb(cursor.u32()), self.bounds, self.state.clip))
             cursor.finish()
             return
-        if kind in {0x4013, 0x4016, 0x4017, 0x4018, 0x4037}:
+        if kind in {
+            PlusRecordType.FILL_REGION,
+            PlusRecordType.FILL_CLOSED_CURVE,
+            PlusRecordType.DRAW_CLOSED_CURVE,
+            PlusRecordType.DRAW_CURVE,
+            PlusRecordType.STROKE_FILL_PATH,
+        }:
             self.warn("emfplus_drawing_skipped", f"drawing record {kind:#x} is not implemented")
             return
-        fill = kind in {0x400A, 0x400C, 0x400E, 0x4010, 0x4014}
+        fill = kind in {
+            PlusRecordType.FILL_RECTS,
+            PlusRecordType.FILL_POLYGON,
+            PlusRecordType.FILL_ELLIPSE,
+            PlusRecordType.FILL_PIE,
+            PlusRecordType.FILL_PATH,
+        }
         brush = self.brush(cursor.u32(), flags) if fill else None
-        if kind == 0x4015:
-            pen = self.get(cursor.u32(), PlusPen)
+        if kind == PlusRecordType.DRAW_PATH:
+            pen = self.object_table.get(cursor.u32(), PlusPen)
         else:
-            pen = None if fill else self.get(flags & 255, PlusPen)
-        if kind in {0x4014, 0x4015}:
-            path = self.get(flags & 255, GraphicsPath)
+            pen = None if fill else self.object_table.get(flags & 255, PlusPen)
+        if kind in {PlusRecordType.FILL_PATH, PlusRecordType.DRAW_PATH}:
+            path = self.object_table.get(flags & 255, GraphicsPath)
             paths = [path] if isinstance(path, GraphicsPath) else []
-        elif kind in {0x400A, 0x400B}:
+        elif kind in {PlusRecordType.FILL_RECTS, PlusRecordType.DRAW_RECTS}:
             count = cursor.count()
             self.host.charge_points(count * 4)
             paths = [rectangle_path(cursor.rect(bool(flags & 0x4000))) for _ in range(count)]
-        elif kind in {0x400E, 0x400F}:
+        elif kind in {PlusRecordType.FILL_ELLIPSE, PlusRecordType.DRAW_ELLIPSE}:
             paths = [ellipse_path(cursor.rect(bool(flags & 0x4000)))]
-        elif kind in {0x4010, 0x4011, 0x4012}:
+        elif kind in {PlusRecordType.FILL_PIE, PlusRecordType.DRAW_PIE, PlusRecordType.DRAW_ARC}:
             start, sweep = cursor.f32(), cursor.f32()
             rect = cursor.rect(bool(flags & 0x4000))
             if abs(sweep) >= 360:
@@ -462,19 +387,19 @@ class EmfPlusPlayback:
                         first,
                         last,
                         direction=2 if sweep > 0 else 1,
-                        close_mode="pie" if kind in {0x4010, 0x4011} else "open",
+                        close_mode="pie" if kind in {PlusRecordType.FILL_PIE, PlusRecordType.DRAW_PIE} else "open",
                     )
                 ]
         else:
             count = cursor.count()
-            minimum = 4 if kind == 0x4019 else 3 if kind == 0x400C else 2
+            minimum = 4 if kind == PlusRecordType.DRAW_BEZIERS else 3 if kind == PlusRecordType.FILL_POLYGON else 2
             if count < minimum:
                 raise MetafileMalformedError("EMF+ shape has too few points")
             points = cursor.points(count, flags)
             builder = PathBuilder()
             if points:
                 builder.move_to(points[0])
-                if kind == 0x4019:
+                if kind == PlusRecordType.DRAW_BEZIERS:
                     if (len(points) - 1) % 3:
                         raise MetafileMalformedError("invalid EMF+ Bezier point count")
                     for index in range(1, len(points), 3):
@@ -482,7 +407,7 @@ class EmfPlusPlayback:
                 else:
                     for point in points[1:]:
                         builder.line_to(point)
-                    if kind == 0x400C or flags & 0x2000:
+                    if kind == PlusRecordType.FILL_POLYGON or flags & 0x2000:
                         builder.close()
             paths = [builder.build()]
         cursor.finish()
@@ -491,14 +416,14 @@ class EmfPlusPlayback:
 
     def draw_image(self, kind: int, flags: int, cursor: Cursor) -> None:
         """读取源裁剪与目标平行四边形，图片颜色处理使用明确降级。"""
-        image = self.get(flags & 255, PlusImage)
+        image = self.object_table.get(flags & 255, PlusImage)
         attributes, unit, source = cursor.u32(), cursor.u32(), cursor.rect()
         if unit != 2:
             raise MetafileMalformedError("EMF+ image source unit must be Pixel")
         if attributes != 0xFFFFFFFF:
-            self.get(attributes, ImageAttributes)
+            self.object_table.get(attributes, ImageAttributes)
             self.warn("emfplus_image_approximation", "image attributes use standard bitmap sampling")
-        if kind == 0x401A:
+        if kind == PlusRecordType.DRAW_IMAGE:
             rect = cursor.rect(bool(flags & 0x4000))
             points = [(rect.left, rect.top), (rect.right, rect.top), (rect.left, rect.bottom)]
         else:
@@ -514,7 +439,13 @@ class EmfPlusPlayback:
         first, second, fourth = (self.point(p) for p in points)
         third = (finite(second[0] + fourth[0] - first[0]), finite(second[1] + fourth[1] - first[1]))
         self.host.append_command(
-            DrawImageCommand(b"", b"", (first, second, third, fourth), source, 0, clip=self.state.clip, encoded_png=image.png)
+            DrawImageCommand(
+                image=EncodedImage(image.png),
+                destination=(first, second, third, fourth),
+                source=source,
+                rop=0,
+                clip=self.state.clip,
+            )
         )
 
     def text_command(
@@ -545,29 +476,29 @@ class EmfPlusPlayback:
         self.host.charge_points(len(text))
         self.host.append_command(
             DrawTextCommand(
-                text,
-                self.point(origin, matrix),
-                tuple(self.point(p, matrix) for p in positions),
-                font.font,
-                height,
-                degrees(atan2(matrix.b, matrix.a)),
-                24 | alignment,
-                brush.color,
-                brush.color,
-                False,
-                None,
-                self.state.clip if clip is None else clip,
+                text=text,
+                origin=self.point(origin, matrix),
+                positions=tuple(self.point(p, matrix) for p in positions),
+                font=font.font,
+                font_height=height,
+                rotation=degrees(atan2(matrix.b, matrix.a)),
+                color=brush.color,
+                background_color=brush.color,
+                opaque=False,
+                bounds=None,
+                clip=self.state.clip if clip is None else clip,
+                alignment=TextAlignment.from_gdi(24 | alignment),
             )
         )
 
     def draw_string(self, flags: int, cursor: Cursor) -> None:
         """支持水平字符串、显式换行与布局矩形内的基本对齐。"""
-        font = self.get(flags & 255, PlusFont)
+        font = self.object_table.get(flags & 255, PlusFont)
         brush = self.brush(cursor.u32(), flags)
         format_id, length = cursor.u32(), cursor.count()
         rect, text = cursor.rect(), cursor.text(length)
         cursor.finish()
-        format_value = self.get(format_id, StringFormat) if format_id != 0xFFFFFFFF else StringFormat()
+        format_value = self.object_table.get(format_id, StringFormat) if format_id != 0xFFFFFFFF else StringFormat()
         if not isinstance(font, PlusFont) or not isinstance(format_value, StringFormat):
             return
         if format_value.flags & 3 or "\t" in text:
@@ -575,7 +506,7 @@ class EmfPlusPlayback:
             return
         em = abs(font.font.height) * self.units(font.unit)[1] / self.units(self.state.unit)[1]
         loaded = load_font(font.font.face_name, max(1, round(em)), font.font.weight, font.font.italic, font.font.charset)
-        ascent, descent = loaded.getmetrics()
+        ascent, descent = font_metrics(loaded)
         line_height = (ascent + descent) * em / max(1, round(em))
         lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
         offset = max(0.0, rect.height - line_height * len(lines)) * (format_value.line_alignment / 2)
@@ -599,7 +530,7 @@ class EmfPlusPlayback:
 
     def driver_string(self, flags: int, cursor: Cursor) -> None:
         """解码 Unicode 模式的逐字位置；glyph 索引仅诊断并跳过。"""
-        font = self.get(flags & 255, PlusFont)
+        font = self.object_table.get(flags & 255, PlusFont)
         brush = self.brush(cursor.u32(), flags)
         options, has_matrix, count = cursor.u32(), cursor.u32(), cursor.count()
         if has_matrix not in {0, 1}:
