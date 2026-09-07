@@ -1,3 +1,5 @@
+![Metafile Render overview](assets/metafile-render-overview.jpg)
+
 # Metafile Render
 
 Render Windows Metafile (WMF) and Enhanced Metafile (EMF) images to SVG, PNG,
