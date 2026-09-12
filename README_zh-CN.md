@@ -109,6 +109,7 @@ python -m metafile_render input.emf -o output.jpg --force
 
 ## 文档与支持
 
+- [Agent skill（英文）](skills/metafile-render/SKILL.md) — 面向 agent 的转换流程与诊断处理指南。将 `skills/metafile-render` 目录复制到所用 agent 支持的技能目录即可使用。
 - [技术参考（英文）](https://github.com/myhloli/metafile-render/blob/main/docs/reference.md) — 完整 API、命令行、输出格式、字体和资源限制。
 - [开发指南（英文）](https://github.com/myhloli/metafile-render/blob/main/docs/reference.md#development) — 本地检查、内部架构、基准测试和发布流程。
 - [问题反馈](https://github.com/myhloli/metafile-render/issues) — 请尽可能附上样本文件、转换参数和诊断信息。

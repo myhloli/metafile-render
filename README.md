@@ -111,6 +111,7 @@ A completed partial conversion exits with code `0`.
 
 ## Documentation and support
 
+- [Agent skill](skills/metafile-render/SKILL.md) — conversion workflows and diagnostic handling for agents. Copy the `skills/metafile-render` directory into your agent's supported skills directory to use it.
 - [Technical reference](https://github.com/myhloli/metafile-render/blob/main/docs/reference.md) — full API and CLI contracts, formats, fonts, and resource limits.
 - [Development guide](https://github.com/myhloli/metafile-render/blob/main/docs/reference.md#development) — local checks, architecture, benchmarks, and publishing.
 - [Report an issue](https://github.com/myhloli/metafile-render/issues) — include a sample file, conversion options, and diagnostics when possible.
