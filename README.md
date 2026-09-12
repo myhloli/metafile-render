@@ -1,221 +1,120 @@
-![Metafile Render overview](assets/metafile-render-overview.jpg)
+<div align="center">
+
+<img src="https://raw.githubusercontent.com/myhloli/metafile-render/main/assets/metafile-render-overview.jpg" alt="Metafile Render — WMF and EMF to SVG, PNG, JPEG, and WebP" width="100%">
 
 # Metafile Render
 
-Render Windows Metafile (WMF) and Enhanced Metafile (EMF) images to SVG, PNG,
-JPEG, and WebP on Linux, macOS, and Windows.
+**Windows metafiles, ready for the modern web.**
 
-Requires Python 3.10–3.14. Runtime dependencies are Pillow and pyclipper;
-no Office installation or external conversion executable is required.
-Portable replay runs on every platform. Windows optionally uses Pillow’s built-in
-GDI renderer first for raster outputs.
+[![PyPI](https://img.shields.io/pypi/v/metafile-render)](https://pypi.org/project/metafile-render/)
+[![Python](https://img.shields.io/pypi/pyversions/metafile-render)](https://pypi.org/project/metafile-render/)
+[![CI](https://github.com/myhloli/metafile-render/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/myhloli/metafile-render/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](https://github.com/myhloli/metafile-render/blob/main/LICENSE)
 
-## Installation
+**English** · [简体中文](https://github.com/myhloli/metafile-render/blob/main/README_zh-CN.md)
+
+[Quick start](#quick-start) · [Usage](#usage) · [Reference](https://github.com/myhloli/metafile-render/blob/main/docs/reference.md)
+
+</div>
+
+## Overview
+
+Metafile Render converts Windows Metafile (**WMF**) and Enhanced Metafile (**EMF**)
+graphics into **SVG, PNG, JPEG, and WebP**. Use it to display legacy graphics in a
+browser or process metafile images extracted from Office documents.
+
+- **Cross-platform** — runs on Linux, macOS, and Windows.
+- **Simple setup** — only Pillow and pyclipper; no Office or external converter required.
+- **Python and CLI** — integrate a single function or convert files from your terminal.
+- **Visible diagnostics** — inspect partial rendering, approximations, and skipped content.
+
+## Quick start
+
+Requires **Python 3.10–3.14**.
 
 ```bash
 pip install metafile-render
 ```
 
-Python 3.10–3.13 requires Pillow >=11.0.0 and pyclipper >=1.3.0,<2.
-Python 3.14 requires Pillow >=12.0.0 and pyclipper >=1.4.0,<2.
-Existing compatible dependencies can be retained; these ranges do not pin a fresh installation to older releases.
-
-## Python API
-
-```python
-from pathlib import Path
-from metafile_render import MetafileError, render_metafile
-
-try:
-    result = render_metafile(
-        Path("input.emf").read_bytes(),
-        output_format="svg",
-        dpi=None,  # defaults to 200 for every output format
-        size_hint=None,
-        backend="auto",  # use "replay" to force the portable engine
-    )
-except MetafileError as error:
-    print(error.code, str(error))
-else:
-    Path("output.svg").write_bytes(result.data)
-    print(result.width, result.height, result.media_type, result.partial)
-    for diagnostic in result.diagnostics:
-        print(diagnostic.code, diagnostic.message)
-```
-
-`render_metafile(data: bytes, *, output_format="png", dpi=None, size_hint=None, backend="auto")`
-returns a `MetafileRenderResult`. Omitted or `None` DPI means **200 DPI for SVG,
-PNG, JPEG, and WebP**. An explicit `dpi` must be an integer from 1 through 1200;
-`size_hint`, when supplied, is a pair of positive integer pixel dimensions, useful
-for standard WMF images without physical dimensions. Resource limits may reduce
-the actual canvas size.
-
-The result contains `data`, `output_format`, `media_type`, `width`, `height`,
-`source_format`, `emfplus_mode`, `partial`, and a tuple of `diagnostics`.
-Each diagnostic contains a code, level, message, and optional record location.
-
-Supported output format strings are `svg`, `png`, `jpeg`, and `webp`.
-Replay preserves transparency in PNG and WebP; JPEG uses a white background at
-quality 90. Native GDI produces opaque white-background images. WebP uses lossy
-quality 90, method 4. PNG/JPEG include the selected DPI metadata; WebP uses DPI
-for pixel dimensions without adding EXIF resolution metadata.
-SVG is self-contained, with embedded images and a PNG fallback in metadata.
-Some raster operations require a raster image wrapped in SVG. SVG dimensions
-also default to 200 DPI; embedded fallback images may use up to 2× sampling.
-Their existing 96 × sampling-factor PNG display-density metadata is independent
-of the API’s DPI-to-pixel calculation.
-
-Public exports are `render_metafile`, `MetafileOutputFormat`,
-`MetafileBackend`, `MetafileRenderResult`, `MetafileDiagnostic`, `MetafileError`,
-`MetafileMalformedError`, `MetafileResourceLimitError`, and `MetafileUnsupportedError`.
-The parser, drawing models, and renderer internals are not a stable public API.
-Invalid API arguments raise `TypeError` or `ValueError`; malformed, unsupported,
-and over-budget images raise the corresponding `MetafileError` subclass.
-
-## Command line
+Convert an existing EMF file to SVG:
 
 ```bash
 metafile-render input.emf -o output.svg
-metafile-render input.wmf -o output.png --dpi 200 --size 800 600
-metafile-render input.emf -o output.webp
-python -m metafile_render input.emf -o output.jpg --force
-metafile-render input.emf -o transparent.png --backend replay
-metafile-render --version
 ```
 
-The output extension selects the format: `.svg`, `.png`, `.jpg`, `.jpeg`, or `.webp`
-(case-insensitive). The output directory must exist. Existing output files are
-preserved unless `--force` is supplied; input and output must be different files.
-Completed outputs are published atomically. Input reads are bounded.
+WMF files use the same command. The output extension selects the format.
 
-Exit codes: `0` for a completed conversion (including partial rendering), `1` for
-conversion or filesystem errors, and `2` for invalid arguments. Diagnostics go to
-stderr. Partial rendering is explicitly reported. Use the Python API to inspect
-individual diagnostic fields.
+## Usage
 
-## Backend selection
+### Python
 
-`backend="auto"` (the default) keeps SVG on the portable replay engine, including
-its embedded PNG fallback. PNG/JPEG/WebP prefer Pillow’s native GDI renderer on
-Windows and use replay elsewhere. `backend="replay"` forces portable replay on
-all platforms, useful for transparent output and reproducible backend selection.
+```python
+from pathlib import Path
+from metafile_render import render_metafile
 
-EMF+ Only and standard WMF without a placeable header go directly to replay:
-Pillow’s GDI backend cannot reliably render those streams. Dual uses the EMF
-stream and is never drawn twice. Native success does not require the replay
-engine to understand every drawing record.
+result = render_metafile(
+    Path("input.emf").read_bytes(),
+    output_format="svg",
+)
+Path("output.svg").write_bytes(result.data)
 
-Known record boundaries, payloads and fixed resource limits are checked before
-native rendering. Native capability/load failures produce an informational
-`native_backend_fallback` diagnostic and retry with replay. Switching backends
-does not by itself set `partial=True`. Native GDI returns white-background RGB;
-this package does not infer transparency by removing white pixels. No automatic
-pixel comparison or blank-image heuristic is used to certify native fidelity.
-Pillow 11.0 and later use an isolated instance-size adapter to render directly
-into the bounded target canvas; calls are serialized around Pillow’s shared WMF
-handler. The native path is GDI, not a new GDI+ backend.
+print(result.width, result.height, result.media_type)
+if result.partial:
+    print("Partial rendering.")
+for item in result.diagnostics:
+    print(item.code, item.message)
+```
 
-## Rendering and fonts
+`render_metafile()` takes bytes and returns image bytes, dimensions, format
+information, and diagnostics. Its default output is PNG at **200 DPI**.
 
-Placeable and standard WMF and common EMF drawing records are supported.
-EMF+ Only supports bounded object definitions (including continued objects), solid
-brushes and pens, paths, basic shapes, world/page transforms, Save/Restore and
-containers, rectangle/path clipping, compressed PNG/JPEG and common 24/32-bit
-RGB/ARGB/PARGB bitmaps, and horizontal Unicode strings with basic alignment.
-Unicode driver strings support explicit positions; glyph-index text is skipped.
-Only files also replay EMF drawing inside GetDC intervals. EMF+ Dual retains its
-existing EMF fallback path and does not draw both streams.
+| Python option | Default | Purpose |
+| :--- | :--- | :--- |
+| `output_format` | `"png"` | `svg`, `png`, `jpeg`, or `webp` |
+| `dpi` | `None` → `200` | Resolution for all outputs, including SVG; integer from 1 to 1200 |
+| `size_hint` | `None` | Pixel dimensions `(width, height)`; useful for WMF without physical dimensions |
+| `backend` | `"auto"` | Automatic backend selection; `"replay"` forces the portable engine |
 
-The portable EMF+ engine prioritizes usable content over pixel-identical GDI+ reproduction:
+Canvas limits may reduce the requested dimensions. See the
+[API reference](https://github.com/myhloli/metafile-render/blob/main/docs/reference.md#python-api)
+for result fields and error handling.
 
-- Linear gradients use the start color; path gradients use the center color;
-  hatch brushes use the foreground color. Texture fills without a representative
-  color are skipped.
-- Font substitutions, text spacing, antialiasing and bitmap sampling can differ
-  from native GDI+. Advanced wrapping, trimming and text formatting are approximated.
-- Complex Region objects, cardinal splines, nested metafile images, glyph-index or
-  vertical text, image effects and custom caps are not fully implemented.
-- SourceCopy uses SourceOver. Non-default quality settings use the existing renderer.
-- Unsupported objects replace their slots with an unavailable object; stale objects
-  are never reused. Unsafe unsupported state changes stop later drawing while the
-  remaining record boundaries are still checked.
-
-Approximations and skipped features produce `partial=True` with diagnostic codes,
-record types and source offsets. Only files with no supported drawing operations
-raise `MetafileUnsupportedError`. Malformed structures and resource overflows
-continue to raise their specific errors. This is not complete GDI+ compatibility.
-
-Font lookup uses installed system fonts and common aliases, trying matching
-bold/italic styles before the regular face, then Pillow's default font.
-`font_substituted` informational diagnostics identify replacements at their source
-record; font substitution alone does not change `partial`. Install the fonts used by the source document for closer text fidelity;
-glyph coverage and measurements can vary across systems. Font files are not bundled.
-WebP output requires a Pillow build with WebP encoding support, as provided by its
-standard wheels; an unavailable encoder raises `MetafileUnsupportedError`.
-
-SVG uses `data-metafile-render="wmf-emf"`, PNG metadata ID
-`metafile-render-raster-fallback`, and local clip IDs `metafile-render-clip-N`.
-The generated-image marker is not authentication of an arbitrary SVG. Consumers
-accepting externally supplied SVG should validate its structure independently.
-
-Fixed budgets bound input bytes, record and object counts, nesting, geometry,
-embedded images, and rendering work. Input is limited to 128 MiB; generated SVG
-is limited to 64 MiB; the canvas is limited to 8192 per side and 16 million pixels.
-
-## Development
+### Command line
 
 ```bash
-uv venv .venv
-uv pip install --python .venv/bin/python -e ".[dev]"
-.venv/bin/python -m pytest
-.venv/bin/python -m ruff check .
-.venv/bin/python -m ruff format --check .
-.venv/bin/python -m mypy src/metafile_render
-.venv/bin/python -m build
-.venv/bin/python -m twine check dist/*
+metafile-render input.emf -o output.png --dpi 300
+metafile-render input.emf -o output.webp
+metafile-render input.emf -o transparent.png --backend replay
+metafile-render input.wmf -o sized.png --size 800 600
+python -m metafile_render input.emf -o output.jpg --force
 ```
 
-On Windows, the virtual environment interpreter is `.venv\Scripts\python.exe`.
-CI tests Python 3.10–3.14 on Linux, macOS, and Windows, plus minimum dependency
-combinations on Linux and Windows. Windows jobs exercise real GDI rendering.
-Core replay tests explicitly select the replay backend. CI also checks static
-types and installs both wheel and sdist in environments without MinerU.
-Real EMF test images are read from a test-only presentation package dependency.
+Supported extensions: `.svg`, `.png`, `.jpg`, `.jpeg`, and `.webp`.
+The output directory must exist. Use `--force` to replace an existing output;
+input and output must be different files. Diagnostics are printed to stderr.
 
-## Publishing
+## Rendering notes
 
-Releases use PyPI Trusted Publishing. Configure the PyPI pending publisher with
-project `metafile-render`, owner `myhloli`, repository `metafile-render`, workflow
-`publish.yml`, and environment `pypi`. Publishing a GitHub Release such as `v0.3.0`
-runs tests, verifies that the tag matches the package version, builds the wheel
-and source distribution, and uploads them through OIDC.
+| Topic | What to expect |
+| :--- | :--- |
+| Backends | SVG always uses portable replay. With `auto`, eligible raster outputs use Pillow's native GDI renderer on Windows and replay elsewhere; native capability/load failures fall back to replay. |
+| Transparency | Replay preserves transparency in PNG and WebP. Native GDI and JPEG use a white background. |
+| SVG | Output is self-contained, including embedded images. Some operations use a raster image inside SVG. |
+| EMF+ | Common EMF+ Only content is supported. Dual files use their EMF fallback stream. Full GDI+ fidelity is not guaranteed. |
+| Fonts | System fonts are used and may be substituted. Install the source document's fonts for closer text fidelity. |
+
+Approximated or skipped content is reported through `partial=True` and
+`diagnostics`. Font substitution or a backend fallback alone does not mark a
+result as partial. Malformed, unsupported, or over-budget inputs can raise
+`MetafileError`; the CLI reports conversion errors with a nonzero exit code.
+A completed partial conversion exits with code `0`.
+
+## Documentation and support
+
+- [Technical reference](https://github.com/myhloli/metafile-render/blob/main/docs/reference.md) — full API and CLI contracts, formats, fonts, and resource limits.
+- [Development guide](https://github.com/myhloli/metafile-render/blob/main/docs/reference.md#development) — local checks, architecture, benchmarks, and publishing.
+- [Report an issue](https://github.com/myhloli/metafile-render/issues) — include a sample file, conversion options, and diagnostics when possible.
 
 ## License
 
-MIT. Copyright (c) 2026 Xiaomeng Zhao (myhloli).
-
-Native GDI+ Only/Dual fixtures and reference PNGs are included in the source tests.
-Regenerate them on Windows with `./tools/generate_emfplus_fixtures.ps1` or the
-"Generate GDI+ fixtures" workflow. Geometric semantics are tested independently
-of font-specific pixel differences.
-
-## Internal architecture
-
-The stable API returns public result/diagnostic models. Header inspection and a
-shared bounded record iterator feed separate WMF/EMF record handlers and EMF+
-playback. A replay context owns source locations, input budgets and diagnostics;
-GetDC state changes are isolated in a GDI bridge. Drawing commands use tagged
-image payloads and named text alignment instead of backend-specific placeholders.
-
-Raster, SVG, bitmap, text, path and compositing modules share a render session.
-It reuses decoded images and clip masks with a **64 MiB per-conversion LRU limit**,
-returns independent copies before mutations, and releases cached images at the
-end of conversion. Input budgets and conservative render-work checks apply even
-on cache hits. Fill and stroke share flattened paths. Raster supersampling and
-SVG fallback selection use the same clip-aware work estimator.
-
-For timing and memory measurements, run `python tools/benchmark_rendering.py --replay`.
-The same script without `--replay` can benchmark pre-0.3 releases on non-Windows
-with identical inputs, explicit 144 DPI and fixed target dimensions. It reports
-median conversion time, Python allocation peak, and process RSS high-water mark
-where available. CI also uploads Only/Dual review outputs from each platform.
+[MIT](https://github.com/myhloli/metafile-render/blob/main/LICENSE) · Copyright © 2026 Xiaomeng Zhao (myhloli).
