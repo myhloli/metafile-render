@@ -6,21 +6,34 @@ from __future__ import annotations
 
 from . import limits
 from .commands import DrawImageCommand, MetafileDocument
-from .limits import MAX_CANVAS_DIMENSION, MAX_CANVAS_PIXELS
 from .models import MetafileMalformedError, MetafileResourceLimitError
 
 
-def _bounded_canvas_size(requested: tuple[int, int]) -> tuple[int, int, bool]:
-    """按单边和总像素预算等比收缩画布尺寸。"""
+def _bounded_canvas_size(requested: tuple[int, int], *, work_units: int = 1) -> tuple[int, int, bool]:
+    """先按画布预算缩放，再按工作预算向下取整，分配前复核全部限制。"""
     width, height = requested
     if width <= 0 or height <= 0:
         raise MetafileMalformedError(f"metafile canvas must be positive: {width}x{height}")
-    scale = min(1.0, MAX_CANVAS_DIMENSION / width, MAX_CANVAS_DIMENSION / height)
-    if width * height * scale * scale > MAX_CANVAS_PIXELS:
-        scale = min(scale, (MAX_CANVAS_PIXELS / (width * height)) ** 0.5)
+    work_units = max(work_units, 1)
+    check_render_size(1, 1, work_units)
+    scale = min(1.0, limits.MAX_CANVAS_DIMENSION / width, limits.MAX_CANVAS_DIMENSION / height)
+    if width * height * scale * scale > limits.MAX_CANVAS_PIXELS:
+        scale = min(scale, (limits.MAX_CANVAS_PIXELS / (width * height)) ** 0.5)
     bounded_width = max(1, round(width * scale))
     bounded_height = max(1, round(height * scale))
-    return bounded_width, bounded_height, scale < 1.0
+    pixel_budget = min(limits.MAX_CANVAS_PIXELS, limits.MAX_RENDER_WORK_PIXELS // work_units)
+    if bounded_width * bounded_height > pixel_budget:
+        work_scale = (pixel_budget / (bounded_width * bounded_height)) ** 0.5
+        bounded_width = max(1, int(bounded_width * work_scale))
+        bounded_height = max(1, int(bounded_height * work_scale))
+        # 极窄画布的短边不能低于 1；必要时继续收缩长边，避免取整后再次超限。
+        if bounded_width * bounded_height > pixel_budget:
+            if bounded_width >= bounded_height:
+                bounded_width = pixel_budget // bounded_height
+            else:
+                bounded_height = pixel_budget // bounded_width
+    check_render_size(bounded_width, bounded_height, work_units)
+    return bounded_width, bounded_height, (bounded_width, bounded_height) != requested
 
 
 __all__ = ["_bounded_canvas_size", "render_work_units", "choose_raster_scale", "check_render_size"]

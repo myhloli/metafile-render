@@ -710,7 +710,7 @@ def test_fixed_record_point_and_state_limits_are_enforced(monkeypatch: pytest.Mo
 
     monkeypatch.setattr(limits, "MAX_RENDER_WORK_PIXELS", 1)
     with pytest.raises(MetafileResourceLimitError, match="max_render_work_pixels"):
-        render_metafile(build_emf([emf_rectangle(1, 1, 10, 10)]), dpi=144, backend="replay")
+        render_metafile(build_emf([emf_rectangle(1, 1, 10, 10)] * 2), dpi=144, backend="replay")
 
 
 def test_clip_stack_and_render_work_use_fixed_budgets(monkeypatch: pytest.MonkeyPatch) -> None:

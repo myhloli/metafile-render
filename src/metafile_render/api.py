@@ -42,7 +42,7 @@ def render_metafile(
     if native_candidate:
         work_units = validate_for_native(data, header)
         if header.pixel_size is not None:
-            width, height, downscaled = _bounded_canvas_size(header.pixel_size)
+            width, height, downscaled = _bounded_canvas_size(header.pixel_size, work_units=work_units)
             check_render_size(width, height, work_units)
             try:
                 image = windows.render_native(data, (width, height), resolved_dpi)
@@ -59,7 +59,7 @@ def render_metafile(
                     context.report(
                         "canvas_downscaled",
                         f"metafile canvas was downscaled from {header.pixel_size[0]}x{header.pixel_size[1]} "
-                        f"to {width}x{height}",
+                        f"to {width}x{height} to satisfy canvas and render-work budgets",
                         level="warning",
                     )
                 return MetafileRenderResult(

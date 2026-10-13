@@ -63,7 +63,17 @@ for standard WMF images without physical dimensions. Resource limits may reduce
 the actual canvas size.
 
 `data` must be `bytes`. A supplied `size_hint` takes precedence over dimensions
-derived from the file and DPI, subject to canvas limits.
+derived from the file and DPI, subject to canvas and render-work limits.
+
+When the requested canvas exceeds the render-work budget, it is proportionally
+downscaled (rounding down to whole pixels, with a minimum of one pixel per side).
+Work units count drawing commands plus their clip operations. The actual canvas
+satisfies both the canvas limits and `width * height * work_units <= 512_000_000`.
+The `canvas_downscaled` warning reports requested and actual dimensions and the
+budget reason. Downscaling alone does not set `partial`; existing content warnings
+remain. All formats and native/replay backends use this sizing policy. DPI metadata
+keeps the requested value, as with existing canvas downscaling. Input limits and
+workloads that cannot fit even a 1×1 canvas still raise resource-limit errors.
 
 The returned `MetafileRenderResult` is an immutable dataclass:
 
@@ -270,6 +280,6 @@ where available. CI also uploads Only/Dual review outputs from each platform.
 
 Releases use PyPI Trusted Publishing. Configure the PyPI pending publisher with
 project `metafile-render`, owner `myhloli`, repository `metafile-render`, workflow
-`publish.yml`, and environment `pypi`. Publishing a GitHub Release such as `v0.3.0`
+`publish.yml`, and environment `pypi`. Publishing a GitHub Release such as `v0.3.1`
 runs tests, verifies that the tag matches the package version, builds the wheel
 and source distribution, and uploads them through OIDC.

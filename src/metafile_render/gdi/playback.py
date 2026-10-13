@@ -392,12 +392,14 @@ class _Playback:
         requested = size_hint or self.header.pixel_size
         if requested is None:
             requested = max(1, round(bounds.width)), max(1, round(bounds.height))
-        width, height, downscaled = _bounded_canvas_size(requested)
+        work_units = max(self.context.budget.commands + self.context.budget.clip_operations, 1)
+        width, height, downscaled = _bounded_canvas_size(requested, work_units=work_units)
         if downscaled:
             self.diagnostics.add(
                 "canvas_downscaled",
                 "warning",
-                f"metafile canvas was downscaled from {requested[0]}x{requested[1]} to {width}x{height}",
+                f"metafile canvas was downscaled from {requested[0]}x{requested[1]} to {width}x{height} "
+                "to satisfy canvas and render-work budgets",
             )
         return MetafileDocument(
             source_format=self.header.source_format,
