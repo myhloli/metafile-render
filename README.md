@@ -7,6 +7,8 @@
 **Windows metafiles, ready for the modern web.**
 
 [![PyPI](https://img.shields.io/pypi/v/metafile-render)](https://pypi.org/project/metafile-render/)
+[![Downloads](https://static.pepy.tech/badge/metafile-render)](https://pepy.tech/projects/metafile-render)
+[![Downloads/month](https://img.shields.io/pypi/dm/metafile-render)](https://pypi.org/project/metafile-render/)
 [![Python](https://img.shields.io/pypi/pyversions/metafile-render)](https://pypi.org/project/metafile-render/)
 [![CI](https://github.com/myhloli/metafile-render/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/myhloli/metafile-render/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](https://github.com/myhloli/metafile-render/blob/main/LICENSE)
