@@ -28,7 +28,7 @@ classifiers = [
 dependencies = [
     "pillow>=11.0.0; python_version < '3.14'",
     "pillow>=12.0.0; python_version >= '3.14'",
-    "pyclipper>=1.3.0,<2; python_version < '3.14'",
+    "pyclipper>=1.3.0.post6,<2; python_version < '3.14'",
     "pyclipper>=1.4.0,<2; python_version >= '3.14'",
 ]
 

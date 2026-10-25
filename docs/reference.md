@@ -26,7 +26,7 @@ external conversion executable is required. The runtime dependencies are:
 
 | Python | Pillow | pyclipper |
 | :--- | :--- | :--- |
-| 3.11–3.13 | `>=11.0.0` | `>=1.3.0,<2` |
+| 3.11–3.13 | `>=11.0.0` | `>=1.3.0.post6,<2` |
 | 3.14 | `>=12.0.0` | `>=1.4.0,<2` |
 
 Compatible installed dependencies can be retained; these ranges do not pin a

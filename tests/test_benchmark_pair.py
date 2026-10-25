@@ -173,7 +173,20 @@ def test_python_symlink_is_preserved(captured_case: dict[str, Any], tmp_path: Pa
     assert Path(config["python"]) != alias.resolve()
 
 
-@pytest.mark.parametrize("relative", ["../escape", "/absolute", "inputs/../../escape"])
+@pytest.mark.parametrize(
+    "relative",
+    [
+        "../escape",
+        "/absolute",
+        "inputs/../../escape",
+        "C:/absolute",
+        r"C:\absolute",
+        r"\rooted",
+        r"\\server\share\escape",
+        "C:drive-relative",
+        r"inputs\..\..\escape",
+    ],
+)
 def test_manifest_paths_cannot_escape(tmp_path: Path, relative: str) -> None:
     """参考清单不能通过路径跳转读取或写入目录之外的文件。"""
     with pytest.raises(ValueError, match="unsafe"):

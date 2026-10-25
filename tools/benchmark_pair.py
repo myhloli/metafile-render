@@ -13,7 +13,7 @@ from importlib import machinery, metadata
 from io import BytesIO
 import json
 import os
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import platform
 import statistics
 import subprocess
@@ -44,9 +44,10 @@ def write_json(path: Path, value: Any) -> None:
 
 
 def contained_path(root: Path, name: str) -> Path:
-    """限制清单中的相对路径，拒绝绝对路径、上跳和逃逸符号链接。"""
+    """限制清单中的相对路径，拒绝两种平台的锚定路径、上跳和逃逸符号链接。"""
     relative = Path(name)
-    if relative.is_absolute() or ".." in relative.parts:
+    windows = PureWindowsPath(name)
+    if relative.anchor or windows.anchor or ".." in relative.parts or ".." in windows.parts:
         raise ValueError(f"unsafe manifest path: {name}")
     resolved = (root / relative).resolve()
     if resolved == root.resolve() or not resolved.is_relative_to(root.resolve()):
@@ -133,7 +134,7 @@ def source_identity(root: Path) -> dict[str, Any]:
         if base.is_dir():
             for path in sorted(base.rglob("*")):
                 if path.is_file() and path.suffix != ".pyc" and "__pycache__" not in path.parts and "target" not in path.parts:
-                    files[str(path.relative_to(root))] = digest(path.read_bytes())
+                    files[path.relative_to(root).as_posix()] = digest(path.read_bytes())
     for name in ("pyproject.toml", "Cargo.toml", "Cargo.lock", "build.rs"):
         if (root / name).is_file():
             files[name] = digest((root / name).read_bytes())
