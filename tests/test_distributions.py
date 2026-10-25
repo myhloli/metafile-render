@@ -3,6 +3,7 @@
 import importlib.util
 from pathlib import Path
 import sys
+from types import SimpleNamespace
 from zipfile import ZipFile
 
 from packaging.tags import sys_tags
@@ -73,3 +74,37 @@ def test_source_distribution_is_rejected(tmp_path: Path) -> None:
     (tmp_path / "metafile_render-0.3.1.tar.gz").touch()
     with pytest.raises(AssertionError, match="Only native wheels"):
         checker.select_distributions(tmp_path)
+
+
+def test_relative_install_output_uses_absolute_python(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """相对输出目录切换 cwd 后仍使用绝对解释器路径，避免重复拼接安装目录。"""
+    import json
+
+    monkeypatch.chdir(tmp_path)
+    root = Path("validation")
+    root.mkdir()
+    distribution = tmp_path / "sample.whl"
+    distribution.write_bytes(b"distribution")
+    calls = []
+
+    def create(builder: object, directory: Path) -> None:
+        """隔离虚拟环境创建，只检查目标路径规范化，不在单测中安装依赖。"""
+        assert directory.is_absolute()
+
+    def run(command: list[str], **kwargs: object) -> SimpleNamespace:
+        """记录子进程路径并提供验证回执，所有进程均应使用同一绝对工作目录。"""
+        assert Path(command[0]).is_absolute()
+        assert kwargs["cwd"] == root.resolve()
+        calls.append(command)
+        if "--output" in command:
+            output = Path(command[command.index("--output") + 1])
+            assert output.is_absolute()
+            output.mkdir()
+            (output / "report.json").write_text(json.dumps({"backend": {"backend": "rust"}}))
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(checker.venv.EnvBuilder, "create", create)
+    monkeypatch.setattr(checker.subprocess, "run", run)
+    report = checker.check_distribution(distribution, root, None)
+    assert len(calls) == 3
+    assert report["distribution"] == distribution.name

@@ -33,6 +33,7 @@ def select_distributions(directory: Path) -> tuple[list[Path], list[Path]]:
 
 def check_distribution(distribution: Path, root: Path, reference: Path | None) -> dict[str, Any]:
     """在仓库外创建独立安装环境，保留日志与实际后端结果。"""
+    root = root.resolve()
     environment = root / "env"
     venv.EnvBuilder(with_pip=True, symlinks=os.name != "nt").create(environment)
     scripts = environment / ("Scripts" if os.name == "nt" else "bin")

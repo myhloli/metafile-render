@@ -23,4 +23,4 @@ On macOS arm64, a paired comparison with the published 0.3.1 package reduced com
 
 - Add a pinned 90-input EMF/WMF corpus with source hashes and distinct primary, generated-control, and robustness groups.
 - Add independent-process AB/BA timing, RSS, full-output verification, and strict five-platform native-wheel release checks.
-- Validate 180 SVG/PNG combinations and isolated CPython 3.11/3.14 wheel installations. Local tests pass 618 cases; Windows GDI checks run in Windows CI.
+- Validate 180 SVG/PNG combinations and isolated CPython 3.11/3.14 wheel installations. Local tests pass 619 cases; Windows GDI checks run in Windows CI.
