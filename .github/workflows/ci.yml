@@ -93,7 +93,15 @@ jobs:
       - run: python -m mypy src/metafile_render
       - run: python tools/build_distributions.py dist
       - run: python -m twine check dist/*
-      - run: python tools/check_distributions.py dist
+      - run: python tools/check_distributions.py dist --output package-installation
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ci-installation
+          path: |
+            package-installation/summary.json
+            package-installation/*/process.log
+            package-installation/*/verification/report.json
       - uses: actions/upload-artifact@v4
         with:
           name: ci-distributions
