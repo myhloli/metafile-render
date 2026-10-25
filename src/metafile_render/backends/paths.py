@@ -13,8 +13,13 @@ from ..commands import DrawPathCommand
 from ..geometry import FlattenBudget, flatten_path, transform_path
 from ..models import MetafileMalformedError, MetafileResourceLimitError
 from ..primitives import Brush, ClipStack, GraphicsPath, Matrix, Pen, Point
+from .composite import _alpha_composite_rgba
 from .constants import _CLIPPER_COORD_LIMIT, _CLIPPER_SCALE
 from .session import RenderSession
+
+_CLIP_OPAQUE_KEY = "metafile_render.clip_opaque"
+_SOLID_FILL_REGION_MIN_PIXELS = 1024 * 1024
+_STROKE_REGION_MIN_PIXELS = 1024 * 1024
 
 
 def _clipper_paths(subpaths: list[tuple[list[Point], bool]]) -> list[list[tuple[int, int]]]:
@@ -108,6 +113,8 @@ def _clip_mask(
             current = ImageChops.logical_xor(current.convert("1"), incoming.convert("1")).convert("L")
         else:
             current = ImageChops.subtract(current, incoming)
+    # 完成所有裁剪几何及预算计费后再分类；copy 会保留这份内部元数据。
+    current.info[_CLIP_OPAQUE_KEY] = current.getextrema() == (255, 255)
     if session is not None:
         session.cache.put(key, current)
     return current
@@ -123,6 +130,9 @@ def _apply_clip(
     """把命令级裁剪 mask 乘入 RGBA layer 的 alpha 通道。"""
     mask = _clip_mask(clip, matrix, layer.size, budget, session)
     if mask is None:
+        return
+    if layer.mode == "RGBA" and mask.info.get(_CLIP_OPAQUE_KEY, False):
+        # 全白 mask 对每个 alpha 都是恒等乘法；RGB 与透明像素内容保持原样。
         return
     alpha = layer.getchannel("A")
     layer.putalpha(ImageChops.multiply(alpha, mask))
@@ -302,13 +312,28 @@ def _render_path_command(
     subpaths = flatten_path(transformed, budget=budget)
     if command.fill and command.brush.kind != "null":
         fill_mask = _subpath_mask(subpaths, size, command.fill_rule, budget)
-        if command.brush.kind == "hatch":
-            fill_layer = _hatch_layer(size, command.brush)
-            fill_layer.putalpha(ImageChops.multiply(fill_layer.getchannel("A"), fill_mask))
+        if (
+            command.rop2 == 13
+            and command.brush.kind == "solid"
+            and command.brush.color.alpha == 255
+            and size[0] * size[1] >= _SOLID_FILL_REGION_MIN_PIXELS
+        ):
+            # Clipper 填充 mask 仅含 0/255；局部 paste 与在透明黑上合成不透明颜色逐字节相同。
+            bbox = fill_mask.getbbox()
+            if bbox is not None:
+                layer.paste(command.brush.color.rgba(), bbox, fill_mask.crop(bbox))
         else:
-            fill_layer = Image.new("RGBA", size, command.brush.color.rgba())
-            fill_layer.putalpha(ImageChops.multiply(fill_layer.getchannel("A"), fill_mask))
-        layer.alpha_composite(fill_layer)
+            if command.brush.kind == "hatch":
+                fill_layer = _hatch_layer(size, command.brush)
+                fill_layer.putalpha(ImageChops.multiply(fill_layer.getchannel("A"), fill_mask))
+            else:
+                fill_layer = Image.new("RGBA", size, command.brush.color.rgba())
+                if command.rop2 == 13 and command.brush.kind == "solid" and command.brush.color.alpha == 255:
+                    # 不透明实心层的 alpha 恒为 255，直接使用 mask 等价于原乘法，且保留原图层合成语义。
+                    fill_layer.putalpha(fill_mask)
+                else:
+                    fill_layer.putalpha(ImageChops.multiply(fill_layer.getchannel("A"), fill_mask))
+            _alpha_composite_rgba(layer, fill_layer)
     if command.stroke and not command.pen.null:
         scale = (abs(matrix.a) + abs(matrix.d)) / 2.0
         pen_width = command.pen.width * raster_scale if command.pen.cosmetic else command.pen.width * max(scale, 1e-9)
@@ -323,9 +348,15 @@ def _render_path_command(
             miter_limit=command.miter_limit,
             budget=budget,
         )
-        stroke_layer = Image.new("RGBA", size, command.pen.color.rgba())
-        stroke_layer.putalpha(ImageChops.multiply(stroke_layer.getchannel("A"), stroke_mask))
-        layer.alpha_composite(stroke_layer)
+        if command.rop2 == 13 and command.pen.color.alpha == 255 and size[0] * size[1] >= _STROKE_REGION_MIN_PIXELS:
+            # 描边 mask 是未降采样的 0/255 覆盖，实心不透明源可直接覆盖相同像素。
+            bbox = stroke_mask.getbbox()
+            if bbox is not None:
+                layer.paste(command.pen.color.rgba(), bbox, stroke_mask.crop(bbox))
+        else:
+            stroke_layer = Image.new("RGBA", size, command.pen.color.rgba())
+            stroke_layer.putalpha(ImageChops.multiply(stroke_layer.getchannel("A"), stroke_mask))
+            _alpha_composite_rgba(layer, stroke_layer)
     _apply_clip(layer, command.clip, matrix, budget, session)
     return layer
 

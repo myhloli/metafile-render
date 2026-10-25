@@ -5,6 +5,8 @@
 from __future__ import annotations
 
 import base64
+from collections.abc import Callable
+from functools import lru_cache
 from html import escape
 from io import BytesIO
 
@@ -21,6 +23,8 @@ from .raster import _png_fallback_bytes
 from .session import RenderSession
 from .text import _aligned_text_positions, _text_anchor, _text_background_bounds
 
+_SVG_NUMBER_CACHE_SIZE = 4096
+
 
 def _svg_number(value: float) -> str:
     """以稳定且紧凑的形式序列化 SVG 浮点数。"""
@@ -30,15 +34,21 @@ def _svg_number(value: float) -> str:
     return f"{rounded:.4f}".rstrip("0").rstrip(".")
 
 
-def _svg_path_data(path: GraphicsPath, matrix: Matrix) -> str:
+def _svg_number_formatter() -> Callable[[float], str]:
+    """创建单次 SVG 输出专用的有界格式化缓存，不跨文档保留坐标。"""
+    return lru_cache(maxsize=_SVG_NUMBER_CACHE_SIZE)(_svg_number)
+
+
+def _svg_path_data(path: GraphicsPath, matrix: Matrix, number: Callable[[float], str] | None = None) -> str:
     """把统一路径转换为安全 SVG path data。"""
     parts: list[str] = []
     estimated_bytes = 0
+    format_number = _svg_number if number is None else number
     for segment in transform_path(path, matrix).segments:
         if segment.verb == "Z":
             parts.append("Z")
             continue
-        coordinates = " ".join(f"{_svg_number(point[0])} {_svg_number(point[1])}" for point in segment.points)
+        coordinates = " ".join(f"{format_number(point[0])} {format_number(point[1])}" for point in segment.points)
         parts.append(f"{segment.verb} {coordinates}")
         estimated_bytes += len(parts[-1]) + 1
         _check_svg_size_budget(estimated_bytes)
@@ -81,7 +91,9 @@ def _svg_brush_attributes(brush: Brush) -> str:
     return " ".join(attributes)
 
 
-def _svg_clip_definitions(document: MetafileDocument, matrix: Matrix) -> tuple[list[str], dict[ClipOperation, str]]:
+def _svg_clip_definitions(
+    document: MetafileDocument, matrix: Matrix, number: Callable[[float], str] | None = None
+) -> tuple[list[str], dict[ClipOperation, str]]:
     """为只含 copy/and 的裁剪路径生成确定性 clipPath 定义。"""
     definitions: list[str] = []
     identifiers: dict[ClipOperation, str] = {}
@@ -95,7 +107,7 @@ def _svg_clip_definitions(document: MetafileDocument, matrix: Matrix) -> tuple[l
             identifier = f"metafile-render-clip-{ordinal}"
             identifiers[operation] = identifier
             definitions.append(
-                f'<clipPath id="{identifier}"><path d="{_svg_path_data(operation.path, matrix)}" '
+                f'<clipPath id="{identifier}"><path d="{_svg_path_data(operation.path, matrix, number)}" '
                 f'fill-rule="{operation.fill_rule}"/></clipPath>'
             )
             estimated_bytes += len(definitions[-1].encode("utf-8"))
@@ -254,7 +266,8 @@ def render_svg(document: MetafileDocument, session: RenderSession | None = None)
     if _svg_requires_raster(document):
         return _raster_wrapped_svg(document, session)
     matrix = _document_matrix(document)
-    definitions, clip_ids = _svg_clip_definitions(document, matrix)
+    number = _svg_number_formatter()
+    definitions, clip_ids = _svg_clip_definitions(document, matrix, number)
     fallback_scale = _svg_fallback_scale(document)
     fallback = base64.b64encode(_png_fallback_bytes(document, pixel_scale=fallback_scale, session=session)).decode("ascii")
     fallback_metadata = _svg_fallback_metadata(fallback)
@@ -270,7 +283,9 @@ def render_svg(document: MetafileDocument, session: RenderSession | None = None)
         elif isinstance(command, DrawPathCommand):
             stroke = _svg_pen_attributes(command.pen, matrix, command.miter_limit) if command.stroke else 'stroke="none"'
             fill = _svg_brush_attributes(command.brush) if command.fill else 'fill="none"'
-            element = f'<path d="{_svg_path_data(command.path, matrix)}" {stroke} {fill} fill-rule="{command.fill_rule}"/>'
+            element = (
+                f'<path d="{_svg_path_data(command.path, matrix, number)}" {stroke} {fill} fill-rule="{command.fill_rule}"/>'
+            )
         elif isinstance(command, DrawTextCommand):
             element = _svg_text_elements(command, matrix, session)
         else:

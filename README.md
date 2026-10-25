@@ -32,7 +32,7 @@ browser or process metafile images extracted from Office documents.
 
 ## Quick start
 
-Requires **Python 3.10–3.14**.
+Requires **GIL-enabled CPython 3.11–3.14**.
 
 ```bash
 pip install metafile-render
@@ -104,6 +104,10 @@ input and output must be different files. Diagnostics are printed to stderr.
 | SVG | Output is self-contained, including embedded images. Some operations use a raster image inside SVG. |
 | EMF+ | Common EMF+ Only content is supported. Dual files use their EMF fallback stream. Full GDI+ fidelity is not guaranteed. |
 | Fonts | System fonts are used and may be substituted. Install the source document's fonts for closer text fidelity. |
+
+The Rust extension is required. Releases provide `cp311-abi3` wheels for Linux
+x86-64/aarch64, Windows x64/ARM64, and macOS 14+ arm64. Pure Python wheels and
+source distributions are not published.
 
 Approximated or skipped content is reported through `partial=True` and
 `diagnostics`. Font substitution or a backend fallback alone does not mark a

@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from math import isfinite
-from typing import Literal
+from typing import Callable, Literal
 
 from ..commands import ClearCommand, DrawCommand, DrawPathCommand, DrawTextCommand, MetafileDocument
 from ..context import DiagnosticSink, ReplayContext
@@ -23,6 +23,14 @@ from ..sizing import _bounded_canvas_size
 from .constants import _RGN_AND, _RGN_COPY, _RGN_DIFF, _RGN_OR, _RGN_XOR
 from .shapes import _path_from_device_points
 from .state import GdiState
+
+
+def _map_point_with_matrix(point: Point, matrix: Matrix) -> Point:
+    """使用已校验矩阵映射单点，仍逐点检查有限数和坐标预算。"""
+    mapped = matrix.transform_point(point)
+    if not all(isfinite(value) and abs(value) <= 1e12 for value in mapped):
+        raise MetafileResourceLimitError("metafile coordinate is non-finite or unreasonably large")
+    return mapped
 
 
 class _Playback:
@@ -148,10 +156,23 @@ class _Playback:
 
     def map_point(self, point: Point) -> Point:
         """把 GDI 逻辑点转换为统一 device 坐标。"""
-        mapped = self.logical_matrix().transform_point(point)
-        if not all(isfinite(value) and abs(value) <= 1e12 for value in mapped):
-            raise MetafileResourceLimitError("metafile coordinate is non-finite or unreasonably large")
-        return mapped
+        return _map_point_with_matrix(point, self.logical_matrix())
+
+    def point_mapper(self) -> Callable[[Point], Point]:
+        """为当前点列惰性复用矩阵；调用方不得跨记录或变换状态复用。"""
+        if self.state.map_mode in {7, 8} and 0.0 in self.state.window_extent:
+            # 退化映射仍逐次发出原有诊断，避免改变警告条数及截断摘要。
+            return self.map_point
+        matrix: Matrix | None = None
+
+        def map_batch_point(point: Point) -> Point:
+            """首个实际使用的点才检查矩阵，空点列不提前触发异常。"""
+            nonlocal matrix
+            if matrix is None:
+                matrix = self.logical_matrix()
+            return _map_point_with_matrix(point, matrix)
+
+        return map_batch_point
 
     def map_vector(self, vector: Point) -> Point:
         """把不含平移的 GDI 逻辑向量转换为 device 向量。"""
@@ -227,12 +248,13 @@ class _Playback:
         """按 PolylineTo 语义连续追加折线并更新 GDI current position。"""
         if not points:
             return
+        map_point = self.point_mapper()
         if self.path_active:
             self._ensure_active_path_current()
             for point in points:
-                self.path_builder.line_to(self.map_point(point))
+                self.path_builder.line_to(map_point(point))
         else:
-            mapped = [self.map_point(self.state.current_position), *(self.map_point(point) for point in points)]
+            mapped = [map_point(self.state.current_position), *(map_point(point) for point in points)]
             self.emit_path(_path_from_device_points(mapped, close=False), stroke=True, fill=False)
         self.state.current_position = points[-1]
 
@@ -246,20 +268,42 @@ class _Playback:
             remaining = remaining[: len(remaining) - len(remaining) % 3]
         if not remaining:
             return
+        map_point = self.point_mapper()
         builder = self.path_builder if self.path_active else PathBuilder()
         if self.path_active:
             self._ensure_active_path_current()
         else:
-            builder.move_to(self.map_point(self.state.current_position))
+            builder.move_to(map_point(self.state.current_position))
         for index in range(0, len(remaining), 3):
             builder.cubic_to(
-                self.map_point(remaining[index]),
-                self.map_point(remaining[index + 1]),
-                self.map_point(remaining[index + 2]),
+                map_point(remaining[index]),
+                map_point(remaining[index + 1]),
+                map_point(remaining[index + 2]),
             )
         if not self.path_active:
             self.emit_path(builder.build(), stroke=True, fill=False)
         self.state.current_position = remaining[-1]
+
+    def _append_mapped_to(self, mapped: list[Point], logical_last: Point, *, bezier: bool) -> None:
+        """追加整批已校验的设备点，逻辑终点、路径和画笔状态仍按原 GDI 规则处理。"""
+        if bezier:
+            builder = self.path_builder if self.path_active else PathBuilder()
+            if self.path_active:
+                self._ensure_active_path_current()
+            else:
+                builder.move_to(self.map_point(self.state.current_position))
+            for index in range(0, len(mapped), 3):
+                builder.cubic_to(mapped[index], mapped[index + 1], mapped[index + 2])
+            if not self.path_active:
+                self.emit_path(builder.build(), stroke=True, fill=False)
+        elif self.path_active:
+            self._ensure_active_path_current()
+            for point in mapped:
+                self.path_builder.line_to(point)
+        else:
+            current = self.map_point(self.state.current_position)
+            self.emit_path(_path_from_device_points([current, *mapped], close=False), stroke=True, fill=False)
+        self.state.current_position = logical_last
 
     def connected_arc(self, path: GraphicsPath) -> None:
         """绘制 current-to-projected-start 连线和圆弧，并更新到 projected endpoint。"""

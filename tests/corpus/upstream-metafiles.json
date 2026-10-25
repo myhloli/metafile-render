@@ -1,0 +1,342 @@
+{
+  "schema_version": 1,
+  "description": "Pinned upstream regression/robustness inputs. They are not all production documents; generated upstream controls are grouped separately.",
+  "repositories": {
+    "LibreOffice/core": {
+      "commit": "0ea8f79d15a62dfb5a0325640ed5771fc8b75ef2",
+      "license_urls": [
+        "https://github.com/LibreOffice/core/blob/0ea8f79d15a62dfb5a0325640ed5771fc8b75ef2/COPYING.MPL",
+        "https://github.com/LibreOffice/core/blob/0ea8f79d15a62dfb5a0325640ed5771fc8b75ef2/COPYING.LGPL"
+      ]
+    },
+    "apache/poi": {
+      "commit": "4f3c25563919e7efa4a75feccf6cef1ac3d05a04",
+      "license_urls": [
+        "https://github.com/apache/poi/blob/4f3c25563919e7efa4a75feccf6cef1ac3d05a04/legal/LICENSE",
+        "https://github.com/apache/poi/blob/4f3c25563919e7efa4a75feccf6cef1ac3d05a04/legal/NOTICE"
+      ]
+    }
+  },
+  "entries": [
+    {
+      "repository": "LibreOffice/core",
+      "commit": "0ea8f79d15a62dfb5a0325640ed5771fc8b75ef2",
+      "path": "emfio/qa/cppunit/wmf/data/computer_mail.emf",
+      "git_blob": "0dbf23f7f330e4d495c00ce61aa789e2346cd7e8",
+      "bytes": 45876,
+      "group": "upstream_regression",
+      "url": "https://raw.githubusercontent.com/LibreOffice/core/0ea8f79d15a62dfb5a0325640ed5771fc8b75ef2/emfio/qa/cppunit/wmf/data/computer_mail.emf",
+      "sha256": "4d28fc8e12c0450b41b0a6588eb9c72027a7034cb8476e0facf0076e4dc68fc5"
+    },
+    {
+      "repository": "LibreOffice/core",
+      "commit": "0ea8f79d15a62dfb5a0325640ed5771fc8b75ef2",
+      "path": "emfio/qa/cppunit/wmf/data/image1.emf",
+      "git_blob": "2dcc32a4cf27f6c4ce4e573941ddc40d08799b8a",
+      "bytes": 233976,
+      "group": "upstream_regression",
+      "url": "https://raw.githubusercontent.com/LibreOffice/core/0ea8f79d15a62dfb5a0325640ed5771fc8b75ef2/emfio/qa/cppunit/wmf/data/image1.emf",
+      "sha256": "06220547d75015780187e1375f8f27955a9cd9538293fa6c63ae3043b39eace8"
+    },
+    {
+      "repository": "LibreOffice/core",
+      "commit": "0ea8f79d15a62dfb5a0325640ed5771fc8b75ef2",
+      "path": "emfio/qa/cppunit/wmf/data/tdf39894.emf",
+      "git_blob": "c9d5b957b87a6f7ee6633bc5b523a0edd307d65d",
+      "bytes": 1628,
+      "group": "upstream_regression",
+      "url": "https://raw.githubusercontent.com/LibreOffice/core/0ea8f79d15a62dfb5a0325640ed5771fc8b75ef2/emfio/qa/cppunit/wmf/data/tdf39894.emf",
+      "sha256": "f39c4e1ee675bb5201bcaaa8267f35d27821348bbd4922309d8ba1b954ff5ada"
+    },
+    {
+      "repository": "LibreOffice/core",
+      "commit": "0ea8f79d15a62dfb5a0325640ed5771fc8b75ef2",
+      "path": "emfio/qa/cppunit/wmf/data/tdf39894.wmf",
+      "git_blob": "32e41dee9070403544ebeccee3b5be79e1505ee9",
+      "bytes": 300,
+      "group": "upstream_regression",
+      "url": "https://raw.githubusercontent.com/LibreOffice/core/0ea8f79d15a62dfb5a0325640ed5771fc8b75ef2/emfio/qa/cppunit/wmf/data/tdf39894.wmf",
+      "sha256": "42b96ac69c61e369d9273f6c6144ce46efa8ed1a5e507fe3d01fed1fe2bcf008"
+    },
+    {
+      "repository": "LibreOffice/core",
+      "commit": "0ea8f79d15a62dfb5a0325640ed5771fc8b75ef2",
+      "path": "emfio/qa/cppunit/wmf/data/tdf88163-non-placeable.wmf",
+      "git_blob": "6d27691f0d2d9dbf9936996b077f1ec64e255d83",
+      "bytes": 1268,
+      "group": "upstream_regression",
+      "url": "https://raw.githubusercontent.com/LibreOffice/core/0ea8f79d15a62dfb5a0325640ed5771fc8b75ef2/emfio/qa/cppunit/wmf/data/tdf88163-non-placeable.wmf",
+      "sha256": "f6f46209561c6787bc1eb5d40e9ccf983839c41688b971f3631b368fc6ab0315"
+    },
+    {
+      "repository": "LibreOffice/core",
+      "commit": "0ea8f79d15a62dfb5a0325640ed5771fc8b75ef2",
+      "path": "emfio/qa/cppunit/wmf/data/tdf88163-wrong-font-size.wmf",
+      "git_blob": "4902ba18d16bb567cb58c93c7a4167311cf05b19",
+      "bytes": 1290,
+      "group": "upstream_regression",
+      "url": "https://raw.githubusercontent.com/LibreOffice/core/0ea8f79d15a62dfb5a0325640ed5771fc8b75ef2/emfio/qa/cppunit/wmf/data/tdf88163-wrong-font-size.wmf",
+      "sha256": "31ea5fb0b211c95c556893bf04933befd140428ff5e02bf492664cf42cdc1fc4"
+    },
+    {
+      "repository": "LibreOffice/core",
+      "commit": "0ea8f79d15a62dfb5a0325640ed5771fc8b75ef2",
+      "path": "emfio/qa/cppunit/wmf/data/tdf93750.emf",
+      "git_blob": "3c4c41592be6f494b8bf59e544fcee9186e49783",
+      "bytes": 66416,
+      "group": "upstream_regression",
+      "url": "https://raw.githubusercontent.com/LibreOffice/core/0ea8f79d15a62dfb5a0325640ed5771fc8b75ef2/emfio/qa/cppunit/wmf/data/tdf93750.emf",
+      "sha256": "586a2b1699d310ad5c42561b5832d2bf68472d25e32ec6b4c3bad76f31fb9116"
+    },
+    {
+      "repository": "LibreOffice/core",
+      "commit": "0ea8f79d15a62dfb5a0325640ed5771fc8b75ef2",
+      "path": "emfio/qa/cppunit/wmf/data/visio_import_source.wmf",
+      "git_blob": "88deac9d248dc6ffef9f4510941c8d9190117a38",
+      "bytes": 13801,
+      "group": "upstream_regression",
+      "url": "https://raw.githubusercontent.com/LibreOffice/core/0ea8f79d15a62dfb5a0325640ed5771fc8b75ef2/emfio/qa/cppunit/wmf/data/visio_import_source.wmf",
+      "sha256": "476c2644c61fa85f441e4002420c9308d1d873703c2aa58fd49abc9348568a8e"
+    },
+    {
+      "repository": "LibreOffice/core",
+      "commit": "0ea8f79d15a62dfb5a0325640ed5771fc8b75ef2",
+      "path": "emfio/qa/cppunit/emf/data/fdo79679-2.emf",
+      "git_blob": "0962dc122152e1ff24c03a77cd03d1ce846c50cd",
+      "bytes": 34236,
+      "group": "upstream_regression",
+      "url": "https://raw.githubusercontent.com/LibreOffice/core/0ea8f79d15a62dfb5a0325640ed5771fc8b75ef2/emfio/qa/cppunit/emf/data/fdo79679-2.emf",
+      "sha256": "029f9d282e49f285b253f199ad87109c27b56a2bd8d87d99a7eabd8a05869f5b"
+    },
+    {
+      "repository": "LibreOffice/core",
+      "commit": "0ea8f79d15a62dfb5a0325640ed5771fc8b75ef2",
+      "path": "emfio/qa/cppunit/emf/data/tdf143031_BrushPathGrad.emf",
+      "git_blob": "d7ffebd9b48a01214c22c324d89c3d0b240d5dbb",
+      "bytes": 2580,
+      "group": "upstream_regression",
+      "url": "https://raw.githubusercontent.com/LibreOffice/core/0ea8f79d15a62dfb5a0325640ed5771fc8b75ef2/emfio/qa/cppunit/emf/data/tdf143031_BrushPathGrad.emf",
+      "sha256": "666db2c06aaf7c71047e0280d221677f966396d34a6ca2f32f7ceff35cf8475a"
+    },
+    {
+      "repository": "LibreOffice/core",
+      "commit": "0ea8f79d15a62dfb5a0325640ed5771fc8b75ef2",
+      "path": "emfio/qa/cppunit/emf/data/TestDrawString.emf",
+      "git_blob": "c7976f53b3c04d53197661d6c9dc6ed11b7f53cb",
+      "bytes": 2308,
+      "group": "upstream_control",
+      "url": "https://raw.githubusercontent.com/LibreOffice/core/0ea8f79d15a62dfb5a0325640ed5771fc8b75ef2/emfio/qa/cppunit/emf/data/TestDrawString.emf",
+      "sha256": "64b03253d43cb7581d33277dc8253f815f2b268259101b36a66f307d7460f56e"
+    },
+    {
+      "repository": "LibreOffice/core",
+      "commit": "0ea8f79d15a62dfb5a0325640ed5771fc8b75ef2",
+      "path": "emfio/qa/cppunit/emf/data/TestEmfPlusDrawBeziers.emf",
+      "git_blob": "11f07412168d42270639ce23fa715415edc2576f",
+      "bytes": 9836,
+      "group": "upstream_control",
+      "url": "https://raw.githubusercontent.com/LibreOffice/core/0ea8f79d15a62dfb5a0325640ed5771fc8b75ef2/emfio/qa/cppunit/emf/data/TestEmfPlusDrawBeziers.emf",
+      "sha256": "2283eb4c7165c1455c11f30f4b363106301d20d6ed9d5367c504069f26e51652"
+    },
+    {
+      "repository": "LibreOffice/core",
+      "commit": "0ea8f79d15a62dfb5a0325640ed5771fc8b75ef2",
+      "path": "emfio/qa/cppunit/emf/data/TestEmfPlusDrawImagePointsWithMetafile.emf",
+      "git_blob": "ee0069284fcaa44730d11104003d04803e2761d3",
+      "bytes": 251316,
+      "group": "upstream_control",
+      "url": "https://raw.githubusercontent.com/LibreOffice/core/0ea8f79d15a62dfb5a0325640ed5771fc8b75ef2/emfio/qa/cppunit/emf/data/TestEmfPlusDrawImagePointsWithMetafile.emf",
+      "sha256": "fd589eaac05cfcaa206948a84fe57041a0765fa64eac10f077562f6e1d2253b8"
+    },
+    {
+      "repository": "LibreOffice/core",
+      "commit": "0ea8f79d15a62dfb5a0325640ed5771fc8b75ef2",
+      "path": "emfio/qa/cppunit/emf/data/TestEmfPlusDrawLineWithDash.emf",
+      "git_blob": "547cfca3fcad0ca65551e7df7bb8c271f8369c31",
+      "bytes": 9472,
+      "group": "upstream_control",
+      "url": "https://raw.githubusercontent.com/LibreOffice/core/0ea8f79d15a62dfb5a0325640ed5771fc8b75ef2/emfio/qa/cppunit/emf/data/TestEmfPlusDrawLineWithDash.emf",
+      "sha256": "56a8d845207d0b2e848df109703db4ba591c6d4d55ff69e1dff6dbf5cb159ee5"
+    },
+    {
+      "repository": "LibreOffice/core",
+      "commit": "0ea8f79d15a62dfb5a0325640ed5771fc8b75ef2",
+      "path": "emfio/qa/cppunit/emf/data/TestLinearGradient.emf",
+      "git_blob": "fb6e953dc55da39815be7ec990f1c17e54d2a821",
+      "bytes": 132852,
+      "group": "upstream_control",
+      "url": "https://raw.githubusercontent.com/LibreOffice/core/0ea8f79d15a62dfb5a0325640ed5771fc8b75ef2/emfio/qa/cppunit/emf/data/TestLinearGradient.emf",
+      "sha256": "ae56d2d7626be5c3d539f78113808f7e2fbfd2dcef2a64da0d8e0b146f3897ba"
+    },
+    {
+      "repository": "LibreOffice/core",
+      "commit": "0ea8f79d15a62dfb5a0325640ed5771fc8b75ef2",
+      "path": "emfio/qa/cppunit/emf/data/TextMapMode.emf",
+      "git_blob": "e0bbf73e278336f39c7947c68252c346d45e532d",
+      "bytes": 46588,
+      "group": "upstream_control",
+      "url": "https://raw.githubusercontent.com/LibreOffice/core/0ea8f79d15a62dfb5a0325640ed5771fc8b75ef2/emfio/qa/cppunit/emf/data/TextMapMode.emf",
+      "sha256": "428aafe3c00a0ed836924398052998f9d50d974a21b5a1b489a09562699ebc6f"
+    },
+    {
+      "repository": "apache/poi",
+      "commit": "4f3c25563919e7efa4a75feccf6cef1ac3d05a04",
+      "path": "test-data/slideshow/60677.wmf",
+      "git_blob": "6399d7180f45e6f40ecc09a55b2ecb31760616ff",
+      "bytes": 39126,
+      "group": "upstream_regression",
+      "url": "https://raw.githubusercontent.com/apache/poi/4f3c25563919e7efa4a75feccf6cef1ac3d05a04/test-data/slideshow/60677.wmf",
+      "sha256": "2c454c66ff8e37b363d58d7ff458f091e54516a7d9545d0bcd10169a926bb2a7"
+    },
+    {
+      "repository": "apache/poi",
+      "commit": "4f3c25563919e7efa4a75feccf6cef1ac3d05a04",
+      "path": "test-data/slideshow/61338.wmf",
+      "git_blob": "8873072a0934cd4ec9ee74c17438b2cdae412361",
+      "bytes": 9090,
+      "group": "upstream_regression",
+      "url": "https://raw.githubusercontent.com/apache/poi/4f3c25563919e7efa4a75feccf6cef1ac3d05a04/test-data/slideshow/61338.wmf",
+      "sha256": "9782419b0b9443f023829f35b18f5cd9f569fc45da4068affd26e62bdda87c49"
+    },
+    {
+      "repository": "apache/poi",
+      "commit": "4f3c25563919e7efa4a75feccf6cef1ac3d05a04",
+      "path": "test-data/slideshow/64716_image1.wmf",
+      "git_blob": "bef72f2bc3f371b7cf22e6e44126d1b327bafc15",
+      "bytes": 1154,
+      "group": "upstream_regression",
+      "url": "https://raw.githubusercontent.com/apache/poi/4f3c25563919e7efa4a75feccf6cef1ac3d05a04/test-data/slideshow/64716_image1.wmf",
+      "sha256": "7a666a2b8bde45852b7d22ae40814333f223d56df7fe28fd51615da1b27cd0a4"
+    },
+    {
+      "repository": "apache/poi",
+      "commit": "4f3c25563919e7efa4a75feccf6cef1ac3d05a04",
+      "path": "test-data/slideshow/64716_image2.wmf",
+      "git_blob": "e84fc8a417827fa655f093c2052259e86f43b0d9",
+      "bytes": 1956,
+      "group": "upstream_regression",
+      "url": "https://raw.githubusercontent.com/apache/poi/4f3c25563919e7efa4a75feccf6cef1ac3d05a04/test-data/slideshow/64716_image2.wmf",
+      "sha256": "d596e2129d56e7814f80b8b4cecff8adf72f39c4bfda117b3448eb57654d500a"
+    },
+    {
+      "repository": "apache/poi",
+      "commit": "4f3c25563919e7efa4a75feccf6cef1ac3d05a04",
+      "path": "test-data/slideshow/64716_image3.wmf",
+      "git_blob": "a2675cbcb79fd5a9232c21f501027e3e78a354dd",
+      "bytes": 23302,
+      "group": "upstream_regression",
+      "url": "https://raw.githubusercontent.com/apache/poi/4f3c25563919e7efa4a75feccf6cef1ac3d05a04/test-data/slideshow/64716_image3.wmf",
+      "sha256": "5db1a49efe949ce3d730fda81a4267063492751212ca392450af97d246c9c929"
+    },
+    {
+      "repository": "apache/poi",
+      "commit": "4f3c25563919e7efa4a75feccf6cef1ac3d05a04",
+      "path": "test-data/slideshow/VHZ2NYFUYUUJNGLABL26ORTQZA76FJEW.emf",
+      "git_blob": "6dac267f33f121d56dd803d15b73a1d372660f0e",
+      "bytes": 135092,
+      "group": "upstream_regression",
+      "url": "https://raw.githubusercontent.com/apache/poi/4f3c25563919e7efa4a75feccf6cef1ac3d05a04/test-data/slideshow/VHZ2NYFUYUUJNGLABL26ORTQZA76FJEW.emf",
+      "sha256": "507d99cdb7ac1cc24c2fafe11bed0d4d9398ff567896edcb54844b545edfa9f1"
+    },
+    {
+      "repository": "apache/poi",
+      "commit": "4f3c25563919e7efa4a75feccf6cef1ac3d05a04",
+      "path": "test-data/slideshow/bug69924.wmf",
+      "git_blob": "dc8546897efd97ad9b407bc63726201dbf46a4d9",
+      "bytes": 246,
+      "group": "upstream_regression",
+      "url": "https://raw.githubusercontent.com/apache/poi/4f3c25563919e7efa4a75feccf6cef1ac3d05a04/test-data/slideshow/bug69924.wmf",
+      "sha256": "80f5db9299dc0f5b1a4532ef6a4c4038b74f53f4593c9ab1f4b0aa66892e6e1c"
+    },
+    {
+      "repository": "apache/poi",
+      "commit": "4f3c25563919e7efa4a75feccf6cef1ac3d05a04",
+      "path": "test-data/slideshow/empty-polygon-close.wmf",
+      "git_blob": "44aa7cfe23d0244d690c837ececc7a7ab10e7342",
+      "bytes": 20644,
+      "group": "upstream_regression",
+      "url": "https://raw.githubusercontent.com/apache/poi/4f3c25563919e7efa4a75feccf6cef1ac3d05a04/test-data/slideshow/empty-polygon-close.wmf",
+      "sha256": "1f3bf266b587439458b7324ab359677bb03032e99fe37bddff4dd0a45e636a73"
+    },
+    {
+      "repository": "apache/poi",
+      "commit": "4f3c25563919e7efa4a75feccf6cef1ac3d05a04",
+      "path": "test-data/slideshow/file-45.wmf",
+      "git_blob": "629358801701ba25cd4c730d495d351961ee6b18",
+      "bytes": 24890,
+      "group": "upstream_regression",
+      "url": "https://raw.githubusercontent.com/apache/poi/4f3c25563919e7efa4a75feccf6cef1ac3d05a04/test-data/slideshow/file-45.wmf",
+      "sha256": "7ef6301734a165b69de6374dad6e793bd9b9052db71e7dd0a49d6e7044ec1887"
+    },
+    {
+      "repository": "apache/poi",
+      "commit": "4f3c25563919e7efa4a75feccf6cef1ac3d05a04",
+      "path": "test-data/slideshow/nested_wmf.emf",
+      "git_blob": "1752b81f516a3bc00b65b63bb9dae9f7ce1f4d6e",
+      "bytes": 40276,
+      "group": "upstream_regression",
+      "url": "https://raw.githubusercontent.com/apache/poi/4f3c25563919e7efa4a75feccf6cef1ac3d05a04/test-data/slideshow/nested_wmf.emf",
+      "sha256": "4dd0ea622b0feea6daff6b953bd0fe30cc3deb8dc561828f069f83d5bd5cef75"
+    },
+    {
+      "repository": "apache/poi",
+      "commit": "4f3c25563919e7efa4a75feccf6cef1ac3d05a04",
+      "path": "test-data/slideshow/santa.wmf",
+      "git_blob": "20993ba9520c9695885aa65fc96773781e767bfb",
+      "bytes": 28696,
+      "group": "upstream_regression",
+      "url": "https://raw.githubusercontent.com/apache/poi/4f3c25563919e7efa4a75feccf6cef1ac3d05a04/test-data/slideshow/santa.wmf",
+      "sha256": "fdc312bc0dbea47df16d3e3e98e2777e4aa537d225a703e3cde0177df56a592a"
+    },
+    {
+      "repository": "apache/poi",
+      "commit": "4f3c25563919e7efa4a75feccf6cef1ac3d05a04",
+      "path": "test-data/slideshow/wrench.emf",
+      "git_blob": "80016074b9d3a496e152d03537064eebfef46689",
+      "bytes": 6184,
+      "group": "upstream_regression",
+      "url": "https://raw.githubusercontent.com/apache/poi/4f3c25563919e7efa4a75feccf6cef1ac3d05a04/test-data/slideshow/wrench.emf",
+      "sha256": "3c9e27e68d0322daaff3477a957d46ae5b32b23f058d29e65d3947b6eeafb2cb"
+    },
+    {
+      "repository": "apache/poi",
+      "commit": "4f3c25563919e7efa4a75feccf6cef1ac3d05a04",
+      "path": "test-data/slideshow/clusterfuzz-testcase-minimized-6701721724125184.wmf",
+      "git_blob": "abda269ddb7f7dd9f8592ee8ffbde74ca47e92e8",
+      "bytes": 87,
+      "group": "robustness",
+      "url": "https://raw.githubusercontent.com/apache/poi/4f3c25563919e7efa4a75feccf6cef1ac3d05a04/test-data/slideshow/clusterfuzz-testcase-minimized-6701721724125184.wmf",
+      "sha256": "5a724203194c38814c7d6ddbe00c075eb54fe2811116b3f229cf447f0092c58e"
+    },
+    {
+      "repository": "apache/poi",
+      "commit": "4f3c25563919e7efa4a75feccf6cef1ac3d05a04",
+      "path": "test-data/slideshow/clusterfuzz-testcase-minimized-POIFileHandlerFuzzer-6060921738035200.wmf",
+      "git_blob": "37aaf406a84800a532212abce01df97801268b20",
+      "bytes": 18,
+      "group": "robustness",
+      "url": "https://raw.githubusercontent.com/apache/poi/4f3c25563919e7efa4a75feccf6cef1ac3d05a04/test-data/slideshow/clusterfuzz-testcase-minimized-POIFileHandlerFuzzer-6060921738035200.wmf",
+      "sha256": "b8eb46fc11c9ee6d5e13871c4b82ca661ba55f222267809de6e80892fcf65e59"
+    },
+    {
+      "repository": "apache/poi",
+      "commit": "4f3c25563919e7efa4a75feccf6cef1ac3d05a04",
+      "path": "test-data/slideshow/clusterfuzz-testcase-minimized-POIFileHandlerFuzzer-6466833057382400.emf",
+      "git_blob": "9e018a8074bb516397acc8278b2e114f8c9984f0",
+      "bytes": 41,
+      "group": "robustness",
+      "url": "https://raw.githubusercontent.com/apache/poi/4f3c25563919e7efa4a75feccf6cef1ac3d05a04/test-data/slideshow/clusterfuzz-testcase-minimized-POIFileHandlerFuzzer-6466833057382400.emf",
+      "sha256": "aa1b98a62be4463326652ac038aecbec5d34212fcc9d447b7f5f1c657d43b228"
+    },
+    {
+      "repository": "apache/poi",
+      "commit": "4f3c25563919e7efa4a75feccf6cef1ac3d05a04",
+      "path": "test-data/slideshow/crash-7b60e9fe792eaaf1bba8be90c2b62f057cfff142.emf",
+      "git_blob": "32373a040954652114d808fc87ef43723ea006bd",
+      "bytes": 21258,
+      "group": "robustness",
+      "url": "https://raw.githubusercontent.com/apache/poi/4f3c25563919e7efa4a75feccf6cef1ac3d05a04/test-data/slideshow/crash-7b60e9fe792eaaf1bba8be90c2b62f057cfff142.emf",
+      "sha256": "84dde73f1f6ef8b84087519273557d139d252007645eeb4aa694c7a2f3ea501e"
+    }
+  ]
+}

@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from PIL import Image
 
+from ._native_points import get_native
 from .backends import windows
 from .context import ReplayContext
 from .models import MetafileBackend, MetafileError, MetafileOutputFormat, MetafileRenderResult
@@ -30,6 +31,7 @@ def render_metafile(
         raise ValueError(f"unsupported metafile backend: {backend}")
     resolved_dpi = 200 if dpi is None else dpi
     header = prepare_metafile(data, dpi=resolved_dpi, size_hint=size_hint)
+    get_native()
     validate_encoder(output_format)
     context = ReplayContext()
     native_candidate = (

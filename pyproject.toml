@@ -1,24 +1,27 @@
 [build-system]
-requires = ["setuptools>=77.0.3", "wheel"]
+requires = ["setuptools>=77.0.3", "wheel", "setuptools-rust>=1.12,<2"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "metafile-render"
-version = "0.3.1"
+version = "0.4.0"
 description = "Render WMF and EMF files to SVG, PNG, JPEG, and WebP"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [{name = "Xiaomeng Zhao (myhloli)"}]
-requires-python = ">=3.10,<3.15"
+requires-python = ">=3.11,<3.15"
 keywords = ["wmf", "emf", "metafile", "svg", "png", "jpeg", "webp", "rendering"]
 classifiers = [
-    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: Implementation :: CPython",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
-    "Operating System :: OS Independent",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: MacOS :: MacOS X",
     "Topic :: Multimedia :: Graphics :: Graphics Conversion",
     "Typing :: Typed",
 ]
@@ -52,17 +55,28 @@ testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 128
-target-version = "py310"
+target-version = "py311"
 
 [tool.ruff.lint]
 select = ["C", "E", "F", "W", "ANN"]
 ignore = ["C901", "ANN204", "ANN401"]
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.11"
 check_untyped_defs = true
 warn_unused_ignores = true
 
 [[tool.mypy.overrides]]
 module = ["pyclipper", "pyclipper.*"]
 ignore_missing_imports = true
+
+[tool.cibuildwheel]
+build = "cp311-*"
+skip = "*-musllinux*"
+test-command = "python {project}/tools/verify_installation.py --output wheel-smoke"
+
+[tool.cibuildwheel.linux]
+manylinux-x86_64-image = "manylinux_2_28"
+manylinux-aarch64-image = "manylinux_2_28"
+before-all = "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.98.1"
+environment = { PATH = "$HOME/.cargo/bin:$PATH" }

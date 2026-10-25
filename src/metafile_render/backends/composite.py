@@ -9,6 +9,30 @@ from PIL import Image, ImageChops
 from .constants import _BLACKNESS, _DSTINVERT, _SRCAND, _SRCCOPY, _SRCINVERT, _SRCPAINT, _WHITENESS
 
 
+_COMPOSITE_REGION_MIN_PIXELS = 1024 * 1024
+
+
+def _alpha_composite_rgba(canvas: Image.Image, layer: Image.Image) -> None:
+    """大画布仅合成源 alpha 覆盖框，保留透明源下目标的全部 RGBA 字节。"""
+    if (
+        canvas.mode != "RGBA"
+        or layer.mode != "RGBA"
+        or canvas.size != layer.size
+        or layer.width * layer.height < _COMPOSITE_REGION_MIN_PIXELS
+    ):
+        canvas.alpha_composite(layer)
+        return
+    bbox = layer.getbbox(alpha_only=True)
+    if bbox is None:
+        return
+    # Pillow 局部合成同时持有源副本、目标副本和结果，三份覆盖框不应大于原整图结果。
+    region_pixels = (bbox[2] - bbox[0]) * (bbox[3] - bbox[1])
+    if region_pixels * 3 >= layer.width * layer.height:
+        canvas.alpha_composite(layer)
+    else:
+        canvas.alpha_composite(layer, dest=bbox[:2], source=bbox)
+
+
 def _bitwise_channel_bytes(destination: bytes, source: bytes, operation: str) -> bytes:
     """对等长 RGB 字节串执行精确 AND、OR、XOR 或反相。"""
     if operation == "xor":
@@ -76,7 +100,7 @@ def _composite_path(canvas: Image.Image, layer: Image.Image, rop2: int) -> None:
         16: "white",
     }
     if rop2 == 13:
-        canvas.alpha_composite(layer)
+        _alpha_composite_rgba(canvas, layer)
     elif rop2 != 11:
         _paste_bitwise(canvas, layer, operations.get(rop2, "xor"))
 
@@ -84,7 +108,7 @@ def _composite_path(canvas: Image.Image, layer: Image.Image, rop2: int) -> None:
 def _composite_image(canvas: Image.Image, layer: Image.Image, rop: int) -> None:
     """按常见 ROP3 或 AlphaBlend 结果合成位图层。"""
     if rop in {_SRCCOPY, 0}:
-        canvas.alpha_composite(layer)
+        _alpha_composite_rgba(canvas, layer)
     elif rop == _SRCAND:
         _paste_bitwise(canvas, layer, "and")
     elif rop == _SRCPAINT:
@@ -98,7 +122,7 @@ def _composite_image(canvas: Image.Image, layer: Image.Image, rop: int) -> None:
     elif rop == _WHITENESS:
         _paste_bitwise(canvas, layer, "white")
     else:
-        canvas.alpha_composite(layer)
+        _alpha_composite_rgba(canvas, layer)
 
 
 __all__ = ["_bitwise_channel_bytes", "_paste_bitwise", "_composite_path", "_composite_image"]

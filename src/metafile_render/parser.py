@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+from ._native_points import get_native
 from .commands import MetafileDocument
 from .context import ReplayContext
 from .gdi.bridge import GdiBridge
@@ -46,6 +47,7 @@ def parse_metafile(
 ) -> MetafileDocument:
     """检测并解析 WMF/EMF，返回跨后端统一图元文档。"""
     header = prepared if prepared is not None else prepare_metafile(data, dpi=dpi, size_hint=size_hint)
+    get_native()
     playback = _Playback(header, context)
     if header.source_format == "emf":
         _play_emf(data, header, playback)

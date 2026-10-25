@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from .._native_points import get_native, record_native_call
 from ..binary import BoundedReader
 from ..geometry import PathBuilder
 from ..limits import MAX_POINTS_PER_RECORD
@@ -53,19 +54,50 @@ def _emit_polybezier(playback: _Playback, points: list[Point], *, to: bool) -> N
     if to:
         playback.polybezier_to(points)
         return
+    map_point = playback.point_mapper()
     builder = PathBuilder()
-    builder.move_to(playback.map_point(points[0]))
+    builder.move_to(map_point(points[0]))
     remaining = points[1:]
     if len(remaining) % 3:
         playback.warn("invalid_bezier_points", "PolyBezier point count is not a multiple of three")
         remaining = remaining[: len(remaining) - len(remaining) % 3]
     for index in range(0, len(remaining), 3):
         builder.cubic_to(
-            playback.map_point(remaining[index]),
-            playback.map_point(remaining[index + 1]),
-            playback.map_point(remaining[index + 2]),
+            map_point(remaining[index]),
+            map_point(remaining[index + 1]),
+            map_point(remaining[index + 2]),
         )
     playback.emit_path(builder.build(), stroke=True, fill=False)
 
 
 __all__ = ["_path_from_device_points", "_read_emf_points", "_read_wmf_points", "_emit_polybezier"]
+
+
+def _read_native_to_points(
+    record: BoundedReader, count: int, *, compact: bool, bezier: bool, playback: _Playback
+) -> tuple[list[Point], Point] | None:
+    """在既有输入点计费之后尝试整批解码，异常点列仍由原 Python 路径裁决。"""
+    stride = 4 if compact else 8
+    if count <= 0 or count > MAX_POINTS_PER_RECORD or count > record.remaining(28) // stride:
+        return None
+    if bezier and count % 3:
+        return None
+    if playback.state.map_mode in {7, 8} and 0.0 in playback.state.window_extent:
+        # 保留退化 extent 的每次诊断和截断摘要，不提前创建矩阵。
+        return None
+    native = get_native()
+    matrix = playback.logical_matrix()
+    # 只复制已验证的点数组，避免依赖原始 memoryview 的 owner/base_offset 不变式。
+    data = record.data[28 : 28 + count * stride].tobytes()
+    try:
+        mapped, last = native.decode_transform_points(
+            data, 0, count, compact, (matrix.a, matrix.b, matrix.c, matrix.d, matrix.e, matrix.f)
+        )
+    except (ValueError, OverflowError):
+        record_native_call(count, failed=True)
+        # 回到同一记录的 Python 后半段，计费不重复，原错误先后与局部路径状态也得以保留。
+        return None
+    record_native_call(count)
+    if last is None or len(mapped) != count:
+        raise RuntimeError("Rust point extension returned an inconsistent batch")
+    return mapped, last

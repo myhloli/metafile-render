@@ -21,12 +21,12 @@ For installation and a first conversion, start with the
 
 ## Requirements
 
-Python **3.10–3.14** on Linux, macOS, or Windows. No Office installation or
+GIL-enabled **CPython 3.11–3.14** on the supported native-wheel platforms. No Office installation or
 external conversion executable is required. The runtime dependencies are:
 
 | Python | Pillow | pyclipper |
 | :--- | :--- | :--- |
-| 3.10–3.13 | `>=11.0.0` | `>=1.3.0,<2` |
+| 3.11–3.13 | `>=11.0.0` | `>=1.3.0,<2` |
 | 3.14 | `>=12.0.0` | `>=1.4.0,<2` |
 
 Compatible installed dependencies can be retained; these ranges do not pin a
@@ -236,15 +236,17 @@ uv pip install --python .venv/bin/python -e ".[dev]"
 .venv/bin/python -m ruff check .
 .venv/bin/python -m ruff format --check .
 .venv/bin/python -m mypy src/metafile_render
-.venv/bin/python -m build
-.venv/bin/python -m twine check dist/*
+.venv/bin/python tools/build_distributions.py dist-native
+.venv/bin/python -m twine check dist-native/*.whl
+.venv/bin/python tools/check_distributions.py dist-native
 ```
 
 On Windows, the virtual environment interpreter is `.venv\Scripts\python.exe`.
-CI tests Python 3.10–3.14 on Linux, macOS, and Windows, plus minimum dependency
+CI tests CPython 3.11–3.14 on Linux, macOS, and Windows, plus minimum dependency
 combinations on Linux and Windows. Windows jobs exercise real GDI rendering.
 Core replay tests explicitly select the replay backend. CI also checks static
-types and installs both wheel and sdist in environments without MinerU.
+types and installs native wheels in environments without MinerU. Rust is required
+for source development and builds; there is no optional-compilation mode.
 Real EMF test images are read from a test-only presentation package dependency.
 
 ## Internal architecture
@@ -262,6 +264,43 @@ end of conversion. Input budgets and conservative render-work checks apply even
 on cache hits. Fill and stroke share flattened paths. Raster supersampling and
 SVG fallback selection use the same clip-aware work estimator.
 
+Common EMF PolylineTo and PolyBezierTo records use the required Rust kernel
+for batched point decoding, validation and affine transformation. Input point
+budgets are checked before native allocation. Python retains GDI state, current
+positions, path construction and diagnostics; exceptional records follow the
+existing Python path. No public rendering-backend parameter changes are needed.
+
+Native wheels use PyO3's CPython 3.11 stable ABI (`abi3-py311`). The Python
+installation floor and wheel ABI floor are both 3.11. Free-threaded CPython,
+PyPy and Python 3.10 are outside this release policy.
+
+The release gate requires exactly these five native wheels:
+
+| Platform | Wheel platform tag |
+| --- | --- |
+| Linux x86-64, glibc 2.28+ | `manylinux_2_28_x86_64` |
+| Linux aarch64, glibc 2.28+ | `manylinux_2_28_aarch64` |
+| Windows x64 | `win_amd64` |
+| Windows ARM64 | `win_arm64` |
+| macOS 14+ arm64 | `macosx_14_0_arm64` |
+
+Pure Python wheels and source distributions are not published. Developers can
+build from source with Rust, but compilation failure is fatal. Both Python and
+Rust still participate in parsing and rendering; native-only means the extension
+is required, not that Python orchestration has been rewritten.
+
+The old build-mode and compute-backend environment switches have been removed.
+The loader raises on missing, damaged or incompatible extensions, and public
+rendering checks the required extension for every valid format/backend route.
+The private `_native_points.backend_info()` reports the actual loaded module,
+protocol, build profile and invocation counts. The public `backend="auto"` /
+`backend="replay"` drawing choice remains independent and unchanged.
+
+Windows ARM64 installation follows DocVortex's dependency policy: `pyclipper`
+may need a source build because no compatible wheel is currently available;
+its CI jobs configure the ARM64 MSVC toolchain and test regular dependency
+resolution. Intel macOS and musl are not published native targets.
+
 ## Benchmarks and fixtures
 
 Native GDI+ Only/Dual fixtures and reference PNGs are included in the source tests
@@ -276,10 +315,43 @@ with identical inputs, explicit 144 DPI and fixed target dimensions. It reports
 median conversion time, Python allocation peak, and process RSS high-water mark
 where available. CI also uploads Only/Dual review outputs from each platform.
 
+`tools/benchmark_pair.py` compares frozen source trees against a captured real
+DOC workload. It runs correctness, paired timing and independent-process RSS
+checks separately. Use `--require-native-after` when measuring Rust so a missing,
+unused or debug extension cannot pass as a native performance result. The
+October 2026 input, batch boundaries and acceptance rules are documented in
+[the optimization plan](optimization-plan-2026-10-25.md).
+
+The broader corpus is defined by a pinned upstream source catalog at
+`tests/corpus/upstream-metafiles.json` plus actual Office caller captures.
+`collect_metafile_corpus.py` preserves aliases and distinguishes actual calls,
+embedded-only assets, generated controls and robustness samples.
+`benchmark_corpus.py --reference ...` checks real candidate output against a
+separate baseline; its timing values alone do not establish a paired speedup.
+See [the corpus report](real-corpus-report-2026-10-25.md) for coverage and commands.
+
+`tools/benchmark_corpus_pair.py` compares two source snapshots against that
+frozen corpus baseline. It checks the complete input/format matrix, IR, encoded
+bytes, fallback pixels, diagnostics and stable rejections before timing. Fresh
+processes alternate AB/BA order; whole-corpus warm-up, timed calls and independent
+RSS runs are separate. The report keeps primary sources and generated/robustness
+controls separate and records per-case samples and actual Release Rust execution.
+
+```bash
+python tools/benchmark_corpus_pair.py --corpus /path/to/corpus --reference /path/to/baseline --before-source /path/to/before --after-source /path/to/after --output /path/to/new/paired-results
+```
+
+Large replay canvases use bounded source-alpha regions for compositing and
+binary-mask coverage regions for opaque solid fills and strokes. The full canvas,
+geometry, clipping and resource budgets remain the same. The selected regions
+also bound temporary crop storage. See the [third-round plan](optimization-round3-plan-2026-10-25.md)
+and [third-round report](optimization-round3-report-2026-10-25.md).
+
 ## Publishing
 
 Releases use PyPI Trusted Publishing. Configure the PyPI pending publisher with
 project `metafile-render`, owner `myhloli`, repository `metafile-render`, workflow
-`publish.yml`, and environment `pypi`. Publishing a GitHub Release such as `v0.3.1`
+`publish.yml`, and environment `pypi`. Publishing a GitHub Release such as `v0.4.0`
 runs tests, verifies that the tag matches the package version, builds the wheel
-and source distribution, and uploads them through OIDC.
+matrix, requires exactly the five native release wheels, and uploads them through
+OIDC. Pure Python wheels and source distributions are excluded from the release.

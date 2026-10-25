@@ -32,7 +32,7 @@ Metafile Render 将 Windows 图元文件（**WMF**）和增强型图元文件（
 
 ## 快速开始
 
-需要 **Python 3.10–3.14**。
+需要启用 GIL 的 **CPython 3.11–3.14**。
 
 ```bash
 pip install metafile-render
@@ -103,6 +103,9 @@ python -m metafile_render input.emf -o output.jpg --force
 | SVG | 输出自包含，图像直接嵌入文件；部分操作会以栅格图嵌入 SVG。 |
 | EMF+ | 支持常见 EMF+ Only 内容；Dual 文件使用 EMF 回退流。不保证完整的 GDI+ 还原效果。 |
 | 字体 | 使用系统字体，缺失时可能替换；安装源文档所用字体可改善文字还原效果。 |
+
+Rust 扩展为必需组件。发布 `cp311-abi3` wheel，支持 Linux x86-64/aarch64、
+Windows x64/ARM64 和 macOS 14+ arm64；不再发布纯 Python wheel 或源码包。
 
 内容被近似处理或跳过时，会通过 `partial=True` 和 `diagnostics` 报告。
 仅字体替换或后端回退不会使结果标记为部分渲染。

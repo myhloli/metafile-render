@@ -3,3 +3,6 @@ include tests/*.py
 recursive-include tests/fixtures *.emf *.png *.md
 include tools/generate_emfplus_fixtures.ps1
 include tools/*.py
+include setup.py
+include rust/Cargo.toml rust/Cargo.lock rust/build.rs
+recursive-include rust/src *.rs

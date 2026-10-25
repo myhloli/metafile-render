@@ -28,7 +28,7 @@ from .objects import _make_brush, _make_pen, _parse_emf_font
 from .playback import _Playback
 from .record_types import EmfRecord
 from .scalars import _parse_color, _parse_rect_i32, _parse_xform
-from .shapes import _emit_polybezier, _path_from_device_points, _read_emf_points
+from .shapes import _emit_polybezier, _path_from_device_points, _read_emf_points, _read_native_to_points
 from .text import _handle_emf_text
 
 
@@ -42,11 +42,18 @@ def _handle_emf_poly(record_type: int, record: BoundedReader, playback: _Playbac
     if record_type in simple_types:
         count = record.u32(24)
         playback.charge_points(count)
+        if record_type in {EmfRecord.POLYLINETO, EmfRecord.POLYLINETO16, EmfRecord.POLYBEZIERTO, EmfRecord.POLYBEZIERTO16}:
+            bezier = record_type in {EmfRecord.POLYBEZIERTO, EmfRecord.POLYBEZIERTO16}
+            batch = _read_native_to_points(record, count, compact=compact, bezier=bezier, playback=playback)
+            if batch is not None:
+                playback._append_mapped_to(*batch, bezier=bezier)
+                return True
         points = _read_emf_points(record, count, 28, compact=compact)
         if record_type in {EmfRecord.POLYBEZIER, EmfRecord.POLYBEZIERTO, EmfRecord.POLYBEZIER16, EmfRecord.POLYBEZIERTO16}:
             _emit_polybezier(playback, points, to=record_type in {EmfRecord.POLYBEZIERTO, EmfRecord.POLYBEZIERTO16})
             return True
-        mapped = [playback.map_point(point) for point in points]
+        map_point = playback.point_mapper()
+        mapped = [map_point(point) for point in points]
         if record_type in {EmfRecord.POLYLINETO, EmfRecord.POLYLINETO16}:
             playback.polyline_to(points)
             return True
@@ -70,8 +77,9 @@ def _handle_emf_poly(record_type: int, record: BoundedReader, playback: _Playbac
     builder = PathBuilder()
     cursor = 0
     close = record_type in {EmfRecord.POLYPOLYGON, EmfRecord.POLYPOLYGON16}
+    map_point = playback.point_mapper()
     for count in counts:
-        mapped = [playback.map_point(point) for point in points[cursor : cursor + count]]
+        mapped = [map_point(point) for point in points[cursor : cursor + count]]
         builder.extend(_path_from_device_points(mapped, close=close))
         cursor += count
     playback.emit_path(builder.build(), stroke=True, fill=close)

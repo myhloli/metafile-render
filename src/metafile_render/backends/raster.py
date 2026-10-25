@@ -11,7 +11,7 @@ from PIL import Image, ImageFilter
 from ..commands import ClearCommand, DrawPathCommand, DrawTextCommand, MetafileDocument
 from ..sizing import check_render_size, choose_raster_scale, render_work_units
 from .bitmap import _render_image_command
-from .composite import _composite_image, _composite_path
+from .composite import _alpha_composite_rgba, _composite_image, _composite_path
 from .mapping import _document_matrix
 from .paths import _clip_mask, _render_path_command
 from .session import RenderSession
@@ -45,7 +45,7 @@ def _render_pillow_once(document: MetafileDocument, raster_scale: int, session: 
         elif isinstance(command, DrawPathCommand):
             _composite_path(canvas, _render_path_command(command, matrix, size, raster_scale, budget, session), command.rop2)
         elif isinstance(command, DrawTextCommand):
-            canvas.alpha_composite(_render_text_command(command, matrix, size, budget, session))
+            _alpha_composite_rgba(canvas, _render_text_command(command, matrix, size, budget, session))
         else:
             _composite_image(canvas, _render_image_command(command, matrix, size, budget, session), command.rop)
     return canvas

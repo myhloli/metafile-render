@@ -1,11 +1,15 @@
 .venv*/
 __pycache__/
 *.py[cod]
+*.so
+*.pyd
+rust/target/
 *.egg-info/
 .pytest_cache/
 .ruff_cache/
 build/
 dist/
+dist-*/
 .coverage
 htmlcov/
 .DS_Store
