@@ -293,8 +293,16 @@ The old build-mode and compute-backend environment switches have been removed.
 The loader raises on missing, damaged or incompatible extensions, and public
 rendering checks the required extension for every valid format/backend route.
 The private `_native_points.backend_info()` reports the actual loaded module,
-protocol, build profile and invocation counts. The public `backend="auto"` /
+protocol, build profile, point invocation counts, and `rop_calls` / `rop_bytes`.
+The public `backend="auto"` /
 `backend="replay"` drawing choice remains independent and unchanged.
+
+The native kernel handles ordinary EMF Polyline/Polygon point batches as well as
+the supported To records. ROP operations use a separate byte kernel; clipping,
+alpha handling, and drawing order remain in the existing renderer. The private
+extension protocol is 3, so a source update requires rebuilding an older binary.
+WMF object allocation preserves the first free handle using an unused-slot
+frontier and a min-heap of recycled handles.
 
 Windows ARM64 installation follows DocVortex's dependency policy: `pyclipper`
 may need a source build because no compatible wheel is currently available;

@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from PIL import Image, ImageChops
 
+from .._native_points import get_native, record_native_rop
 from .constants import _BLACKNESS, _DSTINVERT, _SRCAND, _SRCCOPY, _SRCINVERT, _SRCPAINT, _WHITENESS
 
 
@@ -35,32 +36,9 @@ def _alpha_composite_rgba(canvas: Image.Image, layer: Image.Image) -> None:
 
 def _bitwise_channel_bytes(destination: bytes, source: bytes, operation: str) -> bytes:
     """对等长 RGB 字节串执行精确 AND、OR、XOR 或反相。"""
-    if operation == "xor":
-        return bytes(left ^ right for left, right in zip(destination, source))
-    if operation == "and":
-        return bytes(left & right for left, right in zip(destination, source))
-    if operation == "or":
-        return bytes(left | right for left, right in zip(destination, source))
-    if operation == "not_or":
-        return bytes((~(left | right)) & 0xFF for left, right in zip(destination, source))
-    if operation == "and_not_source":
-        return bytes(left & (~right & 0xFF) for left, right in zip(destination, source))
-    if operation == "not_source":
-        return bytes(255 - value for value in source)
-    if operation == "source_and_not_destination":
-        return bytes(right & (~left & 0xFF) for left, right in zip(destination, source))
-    if operation == "not_and":
-        return bytes((~(left & right)) & 0xFF for left, right in zip(destination, source))
-    if operation == "not_xor":
-        return bytes((~(left ^ right)) & 0xFF for left, right in zip(destination, source))
-    if operation == "destination_or_not_source":
-        return bytes(left | (~right & 0xFF) for left, right in zip(destination, source))
-    if operation == "source_or_not_destination":
-        return bytes(right | (~left & 0xFF) for left, right in zip(destination, source))
-    if operation == "invert":
-        return bytes(255 - value for value in destination)
-    fill = 0 if operation == "black" else 255
-    return bytes([fill]) * len(destination)
+    result: bytes = get_native().bitwise_channel_bytes(destination, source, operation)
+    record_native_rop(len(result))
+    return result
 
 
 def _paste_bitwise(canvas: Image.Image, layer: Image.Image, operation: str) -> None:

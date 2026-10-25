@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from heapq import heappop, heappush
 from math import isfinite
 from typing import Callable, Literal
 
@@ -44,6 +45,9 @@ class _Playback:
         self.state_stack: list[GdiState] = []
         self.emf_objects: dict[int, Pen | Brush | Font] = {}
         self.wmf_objects: list[Pen | Brush | Font | None] = [None] * min(header.wmf_object_count, MAX_OBJECTS)
+        # 未使用槽按前沿递增；回收堆只保存前沿之前已经删除的槽，避免反复扫描整表。
+        self._wmf_next_unused = 0
+        self._wmf_free_slots: list[int] = []
         self.path_builder = PathBuilder()
         self.path_active = False
         self.path_ready = False
@@ -378,13 +382,23 @@ class _Playback:
 
     def create_wmf_object(self, value: Pen | Brush | Font) -> None:
         """按 WMF 首个空槽规则登记图形对象。"""
-        for index, existing in enumerate(self.wmf_objects):
-            if existing is None:
-                self.wmf_objects[index] = value
-                return
-        if len(self.wmf_objects) >= MAX_OBJECTS:
-            raise MetafileResourceLimitError(f"WMF object table exceeds max_objects={MAX_OBJECTS}")
-        self.wmf_objects.append(value)
+        if self._wmf_free_slots:
+            self.wmf_objects[heappop(self._wmf_free_slots)] = value
+            return
+        index = self._wmf_next_unused
+        if index < len(self.wmf_objects):
+            self.wmf_objects[index] = value
+        else:
+            if len(self.wmf_objects) >= MAX_OBJECTS:
+                raise MetafileResourceLimitError(f"WMF object table exceeds max_objects={MAX_OBJECTS}")
+            self.wmf_objects.append(value)
+        self._wmf_next_unused = index + 1
+
+    def delete_wmf_object(self, handle: int) -> None:
+        """只回收实际占用的槽，重复、未使用和越界删除均保持无操作。"""
+        if 0 <= handle < len(self.wmf_objects) and self.wmf_objects[handle] is not None:
+            self.wmf_objects[handle] = None
+            heappush(self._wmf_free_slots, handle)
 
     def select_object(self, value: Pen | Brush | Font) -> None:
         """按对象实际类型更新当前选中画笔、画刷或字体。"""

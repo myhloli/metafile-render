@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.1
+
+- Execute ROP byte operations in the bundled Rust extension, writing directly into the final Python bytes buffer while preserving clipping and RGBA composition.
+- Allocate WMF object handles using an unused-slot frontier and recycled-slot min-heap, preserving first-free-slot and selected-object semantics.
+- Extend native point decoding and transformation to ordinary 16/32-bit EMF polylines and polygons; preserve current position, diagnostics, and resource charging.
+- Advance the private native protocol to 3; rebuild the extension when updating a source checkout.
+
+On macOS arm64, independent-process paired comparisons against 0.4.0 reduced an XOR replay sample from about 184 ms to 20 ms (89%), an 8,000-object WMF sample from 399 ms to 25 ms (94%), and a 20,000-point ordinary EMF polyline from 31 ms to 21 ms (34%). The primary corpus and the original DOC workload remained approximately unchanged. These targeted results are not a production-weighted average.
+
+The local regression suite passes 740 tests with four Windows-only skips. The same native wheel passes isolated CPython 3.11/3.14 API/CLI checks and all 180 frozen corpus combinations with no output, diagnostic, or rejection differences. See the [fourth-round report](docs/optimization-round4-report-2026-10-25.md) for measurements and the recorded single-case timing difference.
+
 ## 0.4.0
 
 ### Compatibility

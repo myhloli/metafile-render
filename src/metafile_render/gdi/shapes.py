@@ -73,10 +73,10 @@ def _emit_polybezier(playback: _Playback, points: list[Point], *, to: bool) -> N
 __all__ = ["_path_from_device_points", "_read_emf_points", "_read_wmf_points", "_emit_polybezier"]
 
 
-def _read_native_to_points(
+def _read_native_emf_points(
     record: BoundedReader, count: int, *, compact: bool, bezier: bool, playback: _Playback
 ) -> tuple[list[Point], Point] | None:
-    """在既有输入点计费之后尝试整批解码，异常点列仍由原 Python 路径裁决。"""
+    """计费后批量解码完整 EMF 点列，退化或异常输入仍交原状态机裁决。"""
     stride = 4 if compact else 8
     if count <= 0 or count > MAX_POINTS_PER_RECORD or count > record.remaining(28) // stride:
         return None

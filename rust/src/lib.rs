@@ -1,4 +1,6 @@
-//! 有界点列解码与仿射变换内核；GDI 状态和诊断仍由 Python 管理。
+//! 有界点列与 ROP 字节内核；GDI 状态和诊断仍由 Python 管理。
+
+mod rop;
 
 use pyo3::exceptions::{PyMemoryError, PyValueError};
 use pyo3::prelude::*;
@@ -103,10 +105,10 @@ fn decode_transform_points(
         .map_err(point_error)
 }
 
-/// 注册点列内核与接口身份，确保加载器和发行物可核验。
+/// 注册点列、ROP 内核与接口身份，确保加载器和发行物可核验。
 #[pymodule]
 fn _metafile_points(module: &Bound<'_, PyModule>) -> PyResult<()> {
-    module.add("PROTOCOL_VERSION", 2)?;
+    module.add("PROTOCOL_VERSION", 3)?;
     module.add(
         "BUILD_PROFILE",
         if cfg!(debug_assertions) {
@@ -116,5 +118,6 @@ fn _metafile_points(module: &Bound<'_, PyModule>) -> PyResult<()> {
         },
     )?;
     module.add_function(wrap_pyfunction!(decode_transform_points, module)?)?;
+    module.add_function(wrap_pyfunction!(rop::bitwise_channel_bytes, module)?)?;
     Ok(())
 }

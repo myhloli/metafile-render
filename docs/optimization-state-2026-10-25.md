@@ -1,6 +1,8 @@
 # Metafile Render 优化执行状态
 
-状态：第三轮热点优化及本机验收已完成，当前交付版本为 **v0.4.0**。跨平台 CI 和发布状态分别见 [Actions](https://github.com/myhloli/metafile-render/actions/workflows/ci.yml)、[GitHub Release](https://github.com/myhloli/metafile-render/releases/tag/v0.4.0) 和 [PyPI](https://pypi.org/project/metafile-render/0.4.0/)。
+状态：第四轮热点优化及本机验收已完成，当前发布目标为 **v0.4.1**。跨平台 CI 和发布状态分别见 [Actions](https://github.com/myhloli/metafile-render/actions/workflows/ci.yml)、[GitHub Release](https://github.com/myhloli/metafile-render/releases/tag/v0.4.1) 和 [PyPI](https://pypi.org/project/metafile-render/0.4.1/)。
+
+第四轮已完成 ROP Rust 字节内核、WMF 首空槽索引及普通 EMF Polyline/Polygon 点列扩展，私有协议为 3；本机 740 项测试、Python 3.11/3.14 独立 wheel 安装与 180 组合回放通过。该批次纳入 0.4.1，提交、远端 CI 和发布结果分别验收。完整性能、单例差异和产物身份见[第四轮验收报告](optimization-round4-report-2026-10-25.md)。
 
 当前支持策略：启用 GIL 的 CPython 3.11–3.14、cp311-abi3、DocVortex 同款五平台原生 wheel；纯 Python 兼容包、运行切换和 sdist 发布已移除。详见[原生发行策略](native-only-policy-2026-10-25.md)。历史验收记录中的 3.10、cp310 和纯包方案已被本次用户指示替代。
 

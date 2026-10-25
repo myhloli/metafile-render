@@ -123,9 +123,7 @@ def _handle_wmf_objects_record(function: int, payload: BoundedReader, playback: 
         playback.select_wmf_handle(payload.u16(0))
         return
     if function == WmfRecord.DELETEOBJECT:
-        handle = payload.u16(0)
-        if handle < len(playback.wmf_objects):
-            playback.wmf_objects[handle] = None
+        playback.delete_wmf_object(payload.u16(0))
         return
     if function == WmfRecord.CREATEPENINDIRECT:
         playback.create_wmf_object(_make_pen(payload.u16(0), float(payload.i16(2)), payload.u32(6)))

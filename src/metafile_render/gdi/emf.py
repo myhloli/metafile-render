@@ -28,7 +28,7 @@ from .objects import _make_brush, _make_pen, _parse_emf_font
 from .playback import _Playback
 from .record_types import EmfRecord
 from .scalars import _parse_color, _parse_rect_i32, _parse_xform
-from .shapes import _emit_polybezier, _path_from_device_points, _read_emf_points, _read_native_to_points
+from .shapes import _emit_polybezier, _path_from_device_points, _read_emf_points, _read_native_emf_points
 from .text import _handle_emf_text
 
 
@@ -42,11 +42,27 @@ def _handle_emf_poly(record_type: int, record: BoundedReader, playback: _Playbac
     if record_type in simple_types:
         count = record.u32(24)
         playback.charge_points(count)
-        if record_type in {EmfRecord.POLYLINETO, EmfRecord.POLYLINETO16, EmfRecord.POLYBEZIERTO, EmfRecord.POLYBEZIERTO16}:
+        native_types = {
+            EmfRecord.POLYLINE,
+            EmfRecord.POLYLINE16,
+            EmfRecord.POLYGON,
+            EmfRecord.POLYGON16,
+            EmfRecord.POLYLINETO,
+            EmfRecord.POLYLINETO16,
+            EmfRecord.POLYBEZIERTO,
+            EmfRecord.POLYBEZIERTO16,
+        }
+        if record_type in native_types:
             bezier = record_type in {EmfRecord.POLYBEZIERTO, EmfRecord.POLYBEZIERTO16}
-            batch = _read_native_to_points(record, count, compact=compact, bezier=bezier, playback=playback)
+            batch = _read_native_emf_points(record, count, compact=compact, bezier=bezier, playback=playback)
             if batch is not None:
-                playback._append_mapped_to(*batch, bezier=bezier)
+                if record_type in {EmfRecord.POLYLINE, EmfRecord.POLYLINE16, EmfRecord.POLYGON, EmfRecord.POLYGON16}:
+                    # 普通折线/多边形不会改变 GDI current position，不能套用 To 的追加逻辑。
+                    mapped, _last = batch
+                    close = record_type in {EmfRecord.POLYGON, EmfRecord.POLYGON16}
+                    playback.emit_path(_path_from_device_points(mapped, close=close), stroke=True, fill=close)
+                else:
+                    playback._append_mapped_to(*batch, bezier=bezier)
                 return True
         points = _read_emf_points(record, count, 28, compact=compact)
         if record_type in {EmfRecord.POLYBEZIER, EmfRecord.POLYBEZIERTO, EmfRecord.POLYBEZIER16, EmfRecord.POLYBEZIERTO16}:

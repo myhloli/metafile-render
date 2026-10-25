@@ -1,4 +1,4 @@
-"""惰性加载进程内必需的点列内核并报告真实执行身份。"""
+"""惰性加载进程内必需的计算内核并报告真实执行身份。"""
 
 from __future__ import annotations
 
@@ -7,10 +7,12 @@ from importlib import import_module
 from types import ModuleType
 from typing import Any
 
-_PROTOCOL_VERSION = 2
+_PROTOCOL_VERSION = 3
 _CALLS = 0
 _POINTS = 0
 _VALIDATION_FAILURES = 0
+_ROP_CALLS = 0
+_ROP_BYTES = 0
 
 
 @lru_cache(maxsize=1)
@@ -35,6 +37,13 @@ def record_native_call(count: int, *, failed: bool = False) -> None:
     _VALIDATION_FAILURES += int(failed)
 
 
+def record_native_rop(size: int) -> None:
+    """累计已完成的整块 ROP 调用和输出字节，供验收确认真实执行路径。"""
+    global _ROP_CALLS, _ROP_BYTES
+    _ROP_CALLS += 1
+    _ROP_BYTES += size
+
+
 def backend_info() -> dict[str, Any]:
     """报告必需扩展的加载身份与实际调用计数，不将加载等同于执行。"""
     native = get_native()
@@ -46,4 +55,6 @@ def backend_info() -> dict[str, Any]:
         "native_calls": _CALLS,
         "native_points": _POINTS,
         "validation_failures": _VALIDATION_FAILURES,
+        "rop_calls": _ROP_CALLS,
+        "rop_bytes": _ROP_BYTES,
     }

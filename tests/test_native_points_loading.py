@@ -17,7 +17,7 @@ def clear_loader() -> Iterator[None]:
     backend.get_native.cache_clear()
 
 
-@pytest.mark.parametrize("kind", ["missing", "dependency", "binary", "protocol", "oserror"])
+@pytest.mark.parametrize("kind", ["missing", "dependency", "binary", "protocol", "previous", "oserror"])
 def test_native_installation_fault_is_fatal(kind: str, monkeypatch: pytest.MonkeyPatch) -> None:
     """扩展不存在或不可用时明确失败，不降级成其他运行版本。"""
 
@@ -32,7 +32,7 @@ def test_native_installation_fault_is_fatal(kind: str, monkeypatch: pytest.Monke
         if kind == "oserror":
             raise OSError("cannot load shared library")
         module = ModuleType(name)
-        module.PROTOCOL_VERSION = 1
+        module.PROTOCOL_VERSION = 2 if kind == "previous" else 1
         return module
 
     monkeypatch.setattr(backend, "import_module", broken)
@@ -66,10 +66,10 @@ def test_retired_environment_variables_do_not_select_a_backend(value: str, monke
     def available(name: str) -> ModuleType:
         """返回当前协议的扩展，以核验旧环境变量已不再参与决策。"""
         module = ModuleType(name)
-        module.PROTOCOL_VERSION = 2
+        module.PROTOCOL_VERSION = 3
         module.BUILD_PROFILE = "release"
         return module
 
     monkeypatch.setattr(backend, "import_module", available)
     assert backend.backend_info()["backend"] == "rust"
-    assert backend.get_native().PROTOCOL_VERSION == 2
+    assert backend.get_native().PROTOCOL_VERSION == 3
