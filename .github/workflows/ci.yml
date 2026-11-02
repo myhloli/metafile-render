@@ -36,6 +36,32 @@ jobs:
           name: review-${{ matrix.os }}
           path: review-artifacts/
 
+  raqm:
+    name: Pillow 13.0 / RAQM regression / Python 3.12
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - run: sudo apt-get update && sudo apt-get install -y libfribidi0 fonts-noto-cjk
+      - run: python -m pip install ".[test]" "pillow==13.0.0"
+      - name: Require real RAQM and CJK fonts
+        run: |
+          python - <<'PY'
+          from PIL import ImageFont, features
+          from metafile_render.fonts.resolve import resolve_font
+          assert features.check("raqm"), "RAQM must be enabled in this regression job"
+          assert features.version("raqm") == "0.11.0"
+          font = ImageFont.truetype("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc", 12)
+          assert font.layout_engine == ImageFont.Layout.RAQM
+          assert "Noto" in resolve_font("Noto Sans CJK SC", 12, 400, False, 134).family
+          print({name: features.version(name) for name in ("raqm", "fribidi", "harfbuzz")})
+          PY
+      - run: python -m pytest -q tests/test_text_layout.py
+      - run: python -m pip check
+
   minimum:
     name: Minimum dependencies / Python ${{ matrix.python }} / ${{ matrix.os }}
     runs-on: ${{ matrix.os }}

@@ -72,6 +72,21 @@ class RenderSession:
         self.cache = ImageCache(cache_limit)
         self.flatten = FlattenBudget()
         self.reported_fonts: set[tuple[str, str]] = set()
+        self.failed_text_commands: dict[int, DrawTextCommand] = {}
+
+    def text_failed(self, command: DrawTextCommand) -> bool:
+        """按命令身份共享矢量和栅格失败状态，避免重复文字影响其他记录。"""
+        return id(command) in self.failed_text_commands
+
+    def fail_text(self, command: DrawTextCommand) -> None:
+        """保留失败命令身份并报告一次来源记录的文字降级。"""
+        self.failed_text_commands[id(command)] = command
+        if self.context is not None:
+            self.context.warn_text(
+                "text_layout_failed",
+                "skipped text whose glyphs could not be laid out",
+                location=command.location,
+            )
 
     def font(self, command: DrawTextCommand, size: int) -> FontResolution:
         """共享字体选择，并按来源位置报告一次字体替代。"""

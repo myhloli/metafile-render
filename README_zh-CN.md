@@ -112,6 +112,10 @@ Windows x64/ARM64 和 macOS 14+ arm64；不再发布纯 Python wheel 或源码�
 结构损坏、不支持或超出资源预算的输入可能抛出 `MetafileError`；
 命令行转换出错时返回非零退出码，已完成的部分渲染返回 `0`。
 
+单行文字中的段落分隔符和 XML 非法字符被清理时，报告 `text_control_filtered`。
+已知 RAQM 布局失败只跳过受影响的文字命令，报告 `text_layout_failed`。
+两者都会设置 `partial=True`，同时保留显式字距、背景矩形及其他绘图命令。
+
 ## 文档与支持
 
 - [Agent skill（英文）](skills/metafile-render/SKILL.md) — 面向 agent 的转换流程与诊断处理指南。将 `skills/metafile-render` 目录复制到所用 agent 支持的技能目录即可使用。

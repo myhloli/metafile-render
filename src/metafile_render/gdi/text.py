@@ -13,6 +13,7 @@ from ..geometry import rectangle_path, vector_length
 from ..limits import MAX_POINTS_PER_RECORD
 from ..models import MetafileMalformedError, MetafileResourceLimitError
 from ..primitives import ClipOperation, Point, Rect
+from ..text_layout import TextLayoutError
 from .constants import _ETO_CLIPPED, _ETO_GLYPH_INDEX, _ETO_OPAQUE, _ETO_PDY, _TA_UPDATECP
 from .objects import _decode_ansi_text
 from .playback import _Playback
@@ -35,6 +36,8 @@ def _emit_text(
     if options & _ETO_GLYPH_INDEX:
         playback.warn("glyph_index_text", "glyph-index text was replaced with visible placeholder glyphs")
         text = "□" * len(text)
+    original_text = text
+    text, retained_indices = playback.context.clean_text(text)
     update_current = bool(playback.state.text_align & _TA_UPDATECP)
     logical_origin = playback.state.current_position if update_current else reference
     origin = playback.map_point(logical_origin)
@@ -43,7 +46,7 @@ def _emit_text(
     font = playback.state.font
     if advances:
         cursor_x, cursor_y = logical_origin
-        for index, _character in enumerate(text):
+        for index, _character in enumerate(original_text):
             positions.append(playback.map_point((cursor_x, cursor_y)))
             if index < len(advances):
                 cursor_x += advances[index][0]
@@ -51,13 +54,23 @@ def _emit_text(
         advance_end = playback.map_point((cursor_x, cursor_y))
         if update_current:
             playback.state.current_position = (cursor_x, cursor_y)
+        if retained_indices is not None:
+            positions = [positions[index] for index in retained_indices]
     elif update_current:
-        advance = measure_text_advance(font, text)
-        angle = radians(font.escapement / 10.0)
-        playback.state.current_position = (
-            logical_origin[0] + advance * cos(angle),
-            logical_origin[1] - advance * sin(angle),
-        )
+        try:
+            advance = measure_text_advance(font, text)
+        except TextLayoutError:
+            playback.context.warn_text("text_layout_failed", "skipped text whose advance could not be laid out")
+            text = ""
+        else:
+            angle = radians(font.escapement / 10.0)
+            playback.state.current_position = (
+                logical_origin[0] + advance * cos(angle),
+                logical_origin[1] - advance * sin(angle),
+            )
+    # 空文字仍可携带 ETO_OPAQUE 的显式背景，但不能生成隐式字形背景。
+    if not text and not (bounds is not None and options & _ETO_OPAQUE):
+        return
     mapped_height = vector_length(playback.map_vector((0.0, font.height or -12.0)))
     baseline_vector = playback.map_vector((1.0, 0.0))
     rotation = degrees(atan2(baseline_vector[1], baseline_vector[0])) + font.escapement / 10.0

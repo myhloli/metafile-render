@@ -8,6 +8,7 @@ from PIL import ImageFont
 
 from .fonts.resolve import resolve_font
 from .primitives import Font
+from .text_layout import text_layout_errors
 
 
 def load_font(
@@ -31,10 +32,11 @@ def measure_text_advance(font: Font, text: str) -> float:
         return 0.0
     font_size = max(1, round(abs(font.height or -12.0)))
     loaded = load_font(font.face_name, font_size, font.weight, font.italic, font.charset)
-    advance = float(loaded.getlength(text))
-    if font.width:
-        natural_width = max(float(loaded.getlength("0")), 1e-9)
-        advance *= abs(font.width) / natural_width
+    with text_layout_errors():
+        advance = float(loaded.getlength(text))
+        if font.width:
+            natural_width = max(float(loaded.getlength("0")), 1e-9)
+            advance *= abs(font.width) / natural_width
     return max(advance, 0.0)
 
 

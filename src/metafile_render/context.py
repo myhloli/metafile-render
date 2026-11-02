@@ -12,6 +12,7 @@ from .dib import validate_dib_payload
 from .limits import MAX_DIAGNOSTICS
 from .location import RecordLocation
 from .models import DiagnosticLevel, MetafileDiagnostic
+from .text_layout import clean_single_line_text
 
 
 class DiagnosticSink:
@@ -60,6 +61,25 @@ class ReplayContext:
         self.commands: list[DrawCommand] = []
         self.partial = False
         self.location = RecordLocation()
+        self._text_warnings: set[tuple[str, RecordLocation]] = set()
+
+    def warn_text(self, code: str, message: str, *, location: RecordLocation | None = None) -> None:
+        """按来源记录去重文字降级诊断，并限制去重集合的内存占用。"""
+        self.partial = True
+        where = location if location is not None else self.location
+        key = (code, where)
+        if key in self._text_warnings:
+            return
+        if len(self._text_warnings) < MAX_DIAGNOSTICS:
+            self._text_warnings.add(key)
+        self.report(code, message, level="warning", location=where)
+
+    def clean_text(self, text: str) -> tuple[str, tuple[int, ...] | None]:
+        """清理当前记录的单行文字，并保留显式字符位置所需的索引。"""
+        cleaned, indices = clean_single_line_text(text)
+        if indices is not None:
+            self.warn_text("text_control_filtered", "removed paragraph separators or XML-invalid characters from text")
+        return cleaned, indices
 
     def set_record_context(self, record_type: int, record_index: int, offset: int) -> None:
         """更新后续命令和诊断使用的来源记录。"""

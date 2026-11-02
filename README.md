@@ -115,6 +115,12 @@ result as partial. Malformed, unsupported, or over-budget inputs can raise
 `MetafileError`; the CLI reports conversion errors with a nonzero exit code.
 A completed partial conversion exits with code `0`.
 
+Text cleanup reports `text_control_filtered` when paragraph separators or
+XML-invalid characters are removed from a single-line text run. A known RAQM
+layout failure skips only the affected text command and reports
+`text_layout_failed`. Both set `partial=True`; explicit character advances,
+background rectangles, and unrelated drawing commands are preserved.
+
 ## Documentation and support
 
 - [Agent skill](skills/metafile-render/SKILL.md) — conversion workflows and diagnostic handling for agents. Copy the `skills/metafile-render` directory into your agent's supported skills directory to use it.

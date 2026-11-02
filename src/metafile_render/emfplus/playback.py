@@ -16,6 +16,7 @@ from ..geometry import PathBuilder, arc_path, ellipse_path, rectangle_path, tran
 from ..limits import MAX_CLIP_OPERATIONS, MAX_RECORDS, MAX_STATE_DEPTH
 from ..models import MetafileMalformedError, MetafileResourceLimitError, MetafileUnsupportedError
 from ..primitives import Brush, ClipOperation, ClipStack, GraphicsPath, Matrix, Pen, Point, Rect
+from ..text_layout import TextLayoutError
 from .binary import Cursor, PlusRecord, argb, comment_records, finite
 from .objects import (
     ImageAttributes,
@@ -473,7 +474,6 @@ class EmfPlusPlayback:
             or abs(matrix.a * matrix.c + matrix.b * matrix.d) > 1e-5
         ):
             self.warn("emfplus_text_approximation", "nonuniform text transform uses rotated glyphs")
-        self.host.charge_points(len(text))
         self.host.append_command(
             DrawTextCommand(
                 text=text,
@@ -504,6 +504,7 @@ class EmfPlusPlayback:
         if format_value.flags & 3 or "\t" in text:
             self.warn("emfplus_text_skipped", "vertical, right-to-left or tabbed text is not supported")
             return
+        self.host.charge_points(len(text))
         em = abs(font.font.height) * self.units(font.unit)[1] / self.units(self.state.unit)[1]
         loaded = load_font(font.font.face_name, max(1, round(em)), font.font.weight, font.font.italic, font.font.charset)
         ascent, descent = font_metrics(loaded)
@@ -519,13 +520,18 @@ class EmfPlusPlayback:
                 raise MetafileResourceLimitError("EMF+ text clip exceeds budget")
             clip += (ClipOperation(transform_path(rectangle_path(rect), self.matrix()), "and"),)
         for line in lines:
-            if (
-                not format_value.flags & 0x1000
-                and rect.width > 0
-                and measure_text_advance(replace(font.font, height=-em), line) > rect.width
-            ):
-                self.warn("emfplus_text_approximation", "automatic line wrapping uses explicit line breaks only")
-            self.text_command(line, font, brush, (x, baseline), alignment=alignment, clip=clip)
+            line, _indices = self.host.clean_text(line)
+            try:
+                if (
+                    not format_value.flags & 0x1000
+                    and rect.width > 0
+                    and measure_text_advance(replace(font.font, height=-em), line) > rect.width
+                ):
+                    self.warn("emfplus_text_approximation", "automatic line wrapping uses explicit line breaks only")
+            except TextLayoutError:
+                self.host.warn_text("text_layout_failed", "skipped text whose advance could not be laid out")
+            else:
+                self.text_command(line, font, brush, (x, baseline), alignment=alignment, clip=clip)
             baseline += line_height
 
     def driver_string(self, flags: int, cursor: Cursor) -> None:
@@ -551,16 +557,24 @@ class EmfPlusPlayback:
         if len(text) != count:
             self.warn("emfplus_text_skipped", "surrogate-pair driver positioning is not supported")
             return
+        self.host.charge_points(len(text))
+        text, retained_indices = self.host.clean_text(text)
         if options & 4:
             if not points:
                 return
             x, y = points[0]
             points = []
             em = abs(font.font.height) * self.units(font.unit)[1] / self.units(self.state.unit)[1]
-            for character in text:
-                points.append((x, y))
-                x += measure_text_advance(replace(font.font, height=-em), character)
+            try:
+                for character in text:
+                    points.append((x, y))
+                    x += measure_text_advance(replace(font.font, height=-em), character)
+            except TextLayoutError:
+                self.host.warn_text("text_layout_failed", "skipped text whose advance could not be laid out")
+                return
             self.warn("emfplus_text_approximation", "driver advance uses installed font metrics")
+        elif retained_indices is not None:
+            points = [points[index] for index in retained_indices]
         if points:
             self.text_command(text, font, brush, points[0], positions=tuple(points), matrix=extra.then(self.matrix()))
 

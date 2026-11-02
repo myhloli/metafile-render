@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from math import ceil, hypot
 
 from PIL import Image, ImageDraw, ImageFont
@@ -12,6 +13,7 @@ from ..commands import DrawTextCommand, TextAlignment
 from ..geometry import FlattenBudget
 from ..primitives import Matrix, Point
 from ..sizing import check_render_size
+from ..text_layout import TextLayoutError, text_layout_errors
 from .mapping import _mapped_rect
 from .paths import _apply_clip
 from .session import RenderSession
@@ -102,11 +104,12 @@ def _text_background_bounds(
         rect = _mapped_rect(command.bounds, matrix).normalized()
         return rect.left, rect.top, rect.right, rect.bottom
     draw = ImageDraw.Draw(Image.new("L", (1, 1)))
-    bounds = [draw.textbbox(position, text, font=font, anchor=anchor) for position, text in zip(positions, texts)]
+    with text_layout_errors():
+        bounds = [draw.textbbox(position, text, font=font, anchor=anchor) for position, text in zip(positions, texts)]
     return min(b[0] for b in bounds), min(b[1] for b in bounds), max(b[2] for b in bounds), max(b[3] for b in bounds)
 
 
-def _render_text_command(
+def _render_text_layer(
     command: DrawTextCommand,
     matrix: Matrix,
     size: tuple[int, int],
@@ -115,6 +118,14 @@ def _render_text_command(
 ) -> Image.Image:
     """把单条文字命令绘制到独立透明 RGBA layer。"""
     layer = Image.new("RGBA", size, (0, 0, 0, 0))
+    if not command.text:
+        if command.opaque and command.bounds is not None:
+            rect = _mapped_rect(command.bounds, matrix).normalized()
+            ImageDraw.Draw(layer).rectangle(
+                (rect.left, rect.top, rect.right, rect.bottom), fill=command.background_color.rgba()
+            )
+        _apply_clip(layer, command.clip, matrix, budget, session)
+        return layer
     scale_y = max(abs(matrix.d), 1e-9)
     font_size = max(1, round(command.font_height * scale_y))
     font = (session or RenderSession()).font(command, font_size).font
@@ -160,6 +171,24 @@ def _render_text_command(
         )
     _apply_clip(layer, command.clip, matrix, budget, session)
     return layer
+
+
+def _render_text_command(
+    command: DrawTextCommand,
+    matrix: Matrix,
+    size: tuple[int, int],
+    budget: FlattenBudget,
+    session: RenderSession | None = None,
+) -> Image.Image:
+    """隔离整条文字命令的布局失败，仅保留不依赖字体度量的显式背景。"""
+    session = session if session is not None else RenderSession()
+    if not session.text_failed(command):
+        try:
+            with text_layout_errors():
+                return _render_text_layer(command, matrix, size, budget, session)
+        except TextLayoutError:
+            session.fail_text(command)
+    return _render_text_layer(replace(command, text="", positions=()), matrix, size, budget, session)
 
 
 __all__ = ["_text_anchor", "_aligned_text_positions", "_draw_rotated_text", "_render_text_command"]

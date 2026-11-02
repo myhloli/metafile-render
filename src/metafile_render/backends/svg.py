@@ -16,9 +16,10 @@ from ..limits import MAX_GENERATED_SVG_BYTES
 from ..models import MetafileResourceLimitError
 from ..primitives import Brush, ClipOperation, ClipStack, Color, GraphicsPath, Matrix, Pen, Rect
 from ..sizing import choose_raster_scale
+from ..text_layout import TextLayoutError, text_layout_errors
 from .bitmap import _crop_destination, _crop_source, _decode_dib
 from .constants import _SRCCOPY
-from .mapping import _document_matrix
+from .mapping import _document_matrix, _mapped_rect
 from .raster import _png_fallback_bytes
 from .session import RenderSession
 from .text import _aligned_text_positions, _text_anchor, _text_background_bounds
@@ -137,12 +138,30 @@ def _svg_text_anchor(alignment: TextAlignment) -> tuple[str, str]:
     )
 
 
-def _svg_text_elements(command: DrawTextCommand, matrix: Matrix, session: RenderSession | None = None) -> str:
+def _svg_text_background(command: DrawTextCommand, rect: Rect) -> str:
+    """为文字背景生成无需字形布局的 SVG 矩形。"""
+    return (
+        f'<rect x="{_svg_number(rect.left)}" y="{_svg_number(rect.top)}" width="{_svg_number(rect.width)}" '
+        f'height="{_svg_number(rect.height)}" fill="{command.background_color.svg()}"'
+        f"{_svg_opacity(command.background_color)}/>"
+    )
+
+
+def _svg_explicit_text_background(command: DrawTextCommand, matrix: Matrix) -> str:
+    """空文字或布局失败时只保留显式不透明背景。"""
+    if command.opaque and command.bounds is not None:
+        return _svg_text_background(command, _mapped_rect(command.bounds, matrix).normalized())
+    return ""
+
+
+def _svg_text_content(command: DrawTextCommand, matrix: Matrix, session: RenderSession) -> str:
     """把统一文字命令转换为一个或多个安全 SVG text 元素。"""
+    if not command.text:
+        return _svg_explicit_text_background(command, matrix)
     anchor, baseline = _svg_text_anchor(command.alignment)
     scale_y = max(abs(matrix.d), 1e-9)
     font_size = max(1.0, command.font_height * scale_y)
-    font = (session or RenderSession()).font(command, max(1, round(font_size))).font
+    font = session.font(command, max(1, round(font_size))).font
     decorations = []
     if command.font.underline:
         decorations.append("underline")
@@ -178,12 +197,20 @@ def _svg_text_elements(command: DrawTextCommand, matrix: Matrix, session: Render
         if positioned_run:
             pillow_anchor = "l" + pillow_anchor[1]
         rect = Rect(*_text_background_bounds(command, matrix, font, list(mapped_positions), texts, pillow_anchor))
-        background = (
-            f'<rect x="{_svg_number(rect.left)}" y="{_svg_number(rect.top)}" width="{_svg_number(rect.width)}" '
-            f'height="{_svg_number(rect.height)}" fill="{command.background_color.svg()}"'
-            f"{_svg_opacity(command.background_color)}/>"
-        )
+        background = _svg_text_background(command, rect)
     return background + "".join(elements)
+
+
+def _svg_text_elements(command: DrawTextCommand, matrix: Matrix, session: RenderSession | None = None) -> str:
+    """与 PNG 共用失败状态，保证单条文字布局错误不终止 SVG 输出。"""
+    session = session if session is not None else RenderSession()
+    if not session.text_failed(command):
+        try:
+            with text_layout_errors():
+                return _svg_text_content(command, matrix, session)
+        except TextLayoutError:
+            session.fail_text(command)
+    return _svg_explicit_text_background(command, matrix)
 
 
 def _svg_image_element(command: DrawImageCommand, matrix: Matrix, session: RenderSession | None = None) -> str:
@@ -263,11 +290,22 @@ def _raster_wrapped_svg(document: MetafileDocument, session: RenderSession | Non
 
 def render_svg(document: MetafileDocument, session: RenderSession | None = None) -> bytes:
     """把统一图元文档渲染为安全、自包含 SVG 字节。"""
+    if session is None:
+        with RenderSession() as owned_session:
+            return render_svg(document, owned_session)
     if _svg_requires_raster(document):
         return _raster_wrapped_svg(document, session)
     matrix = _document_matrix(document)
     number = _svg_number_formatter()
     definitions, clip_ids = _svg_clip_definitions(document, matrix, number)
+    # 先准备矢量文字，PNG 跳过这些已失败命令；栅格阶段的新失败在最终组装时同步剔除。
+    text_elements: dict[int, str] = {}
+    estimated_text_bytes = 256 + sum(len(item.encode("utf-8")) for item in definitions)
+    for command in document.commands:
+        if isinstance(command, DrawTextCommand):
+            text_elements[id(command)] = _svg_text_elements(command, matrix, session)
+            estimated_text_bytes += len(text_elements[id(command)].encode("utf-8"))
+            _check_svg_size_budget(estimated_text_bytes)
     fallback_scale = _svg_fallback_scale(document)
     fallback = base64.b64encode(_png_fallback_bytes(document, pixel_scale=fallback_scale, session=session)).decode("ascii")
     fallback_metadata = _svg_fallback_metadata(fallback)
@@ -287,7 +325,9 @@ def render_svg(document: MetafileDocument, session: RenderSession | None = None)
                 f'<path d="{_svg_path_data(command.path, matrix, number)}" {stroke} {fill} fill-rule="{command.fill_rule}"/>'
             )
         elif isinstance(command, DrawTextCommand):
-            element = _svg_text_elements(command, matrix, session)
+            element = (
+                _svg_explicit_text_background(command, matrix) if session.text_failed(command) else text_elements[id(command)]
+            )
         else:
             element = _svg_image_element(command, matrix, session)
         elements.append(_wrap_svg_clip(element, command.clip, clip_ids))
