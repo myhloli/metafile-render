@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.2
+
+- Fix WMF/EMF text containing paragraph separators failing with Pillow 13.0 / RAQM 0.11.0. Clean single-line text before measurement and drawing, and remove XML-invalid characters before SVG output.
+- Preserve explicit character advances, current-position updates, background rectangles, and clipping when control characters are removed. Keep EMF+ line breaks and Unicode shaping controls intact.
+- Isolate known RAQM layout failures to the affected text command, with matching SVG and embedded PNG output. Report `text_control_filtered` or `text_layout_failed` diagnostics and `partial=True`; unrelated errors and resource limits still propagate.
+- Add 98 regression cases and a Linux/Python 3.12 CI job requiring Pillow 13.0.0, RAQM 0.11.0, and CJK fonts. Public APIs, native protocol, and wheel platform support are unchanged.
+
+Local validation passed 838 tests with four Windows-only skips, all 98 new cases on Pillow 11.0.0, and 18 normal-text PNG/SVG comparisons with byte-identical output against 0.4.1. See [issue #3](https://github.com/myhloli/metafile-render/issues/3).
+
 ## 0.4.1
 
 - Execute ROP byte operations in the bundled Rust extension, writing directly into the final Python bytes buffer while preserving clipping and RGBA composition.
